@@ -11,6 +11,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Library untuk membungkus ZIP otomatis -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -111,6 +113,7 @@
             
             const [selectedGalleryFolder, setSelectedGalleryFolder] = useState(null);
             const [isSaving, setIsSaving] = useState(false);
+            const [isZipping, setIsZipping] = useState(false);
 
             // Storage States
             const [orderFiles, setOrderFiles] = useState([]);
@@ -213,6 +216,45 @@
                     alert("Gagal upload file. Pastikan sudah menjalankan SQL untuk membuka kunci storage.");
                 } finally {
                     setIsUploading(false);
+                }
+            };
+
+            const handleDownloadZip = async (order) => {
+                if (!orderFiles || orderFiles.length === 0) {
+                    alert("Tidak ada file untuk didownload.");
+                    return;
+                }
+                setIsZipping(true);
+                try {
+                    const JSZip = window.JSZip;
+                    if (!JSZip) {
+                        alert("Sistem ZIP belum siap. Harap muat ulang halaman.");
+                        return;
+                    }
+                    const zip = new JSZip();
+                    
+                    const fetchPromises = orderFiles.map(async (file) => {
+                        const response = await fetch(file.publicUrl);
+                        const blob = await response.blob();
+                        zip.file(file.name, blob);
+                    });
+                    
+                    await Promise.all(fetchPromises);
+                    
+                    const zipContent = await zip.generateAsync({ type: "blob" });
+                    const downloadUrl = URL.createObjectURL(zipContent);
+                    const link = document.createElement('a');
+                    link.href = downloadUrl;
+                    link.download = `Dokumentasi_${order.customer.replace(/[^a-z0-9]/gi, '_')}_${order.order_id_text}.zip`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(downloadUrl);
+                } catch (err) {
+                    console.error("Error creating ZIP:", err);
+                    alert("Gagal membuat file ZIP.");
+                } finally {
+                    setIsZipping(false);
                 }
             };
 
@@ -383,27 +425,6 @@
                         )}
                     </div>
                 );
-            };
-
-            const handlePrintInvoice = (order) => {
-                const printContent = ReactDOMServer.renderToString(<InvoiceTemplate order={order} isStandalone={false} />);
-                const printWindow = window.open('', '_blank');
-                printWindow.document.write(`
-                    <html>
-                    <head>
-                        <title>Invoice - ${order.order_id_text}</title>
-                        <script src="https://cdn.tailwindcss.com"><\/script>
-                        <style>
-                            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
-                            body { font-family: 'Inter', sans-serif; background: #fff; padding: 20px; }
-                            @media print { body { padding: 0; } }
-                        </style>
-                    </head>
-                    <body>${printContent}</body>
-                    <script>window.onload = () => { setTimeout(() => { window.print(); }, 500); }<\/script>
-                    </html>
-                `);
-                printWindow.document.close();
             };
 
             const generateInvoiceLink = (orderId) => {
@@ -975,7 +996,7 @@
 
                         <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 shadow-sm bg-blue-50/50">
                             <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage Folder</p>
-                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung dan didownload terpisah (Tanpa ZIP).</p>
+                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung dan didownload terpisah, atau ditarik semua menggunakan tombol Download ZIP.</p>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -1486,9 +1507,6 @@
                                 
                                 <div className="absolute bottom-0 left-0 w-full bg-white border-t border-slate-200 p-4 shrink-0 flex flex-col sm:flex-row gap-3 z-20 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)]">
                                     <div className="flex gap-2 w-full sm:w-auto sm:mr-auto overflow-x-auto pb-1 sm:pb-0">
-                                        <button type="button" onClick={() => handlePrintInvoice(selectedOrder)} className="px-4 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm">
-                                            <i className="fa-solid fa-file-pdf text-red-600"></i> PDF
-                                        </button>
                                         <button type="button" onClick={() => copyToClipboard(generateInvoiceLink(selectedOrder.id), 'Link Invoice berhasil disalin! Silakan paste dan kirim.')} className="px-4 py-3 rounded-xl font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap">
                                             <i className="fa-solid fa-link"></i> Copy Link Inv
                                         </button>
@@ -1559,7 +1577,14 @@
                                         <h3 className="font-black text-xl text-blue-800 flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Isi Folder</h3>
                                         <p className="text-xs text-blue-600 font-bold mt-0.5">{selectedGalleryFolder.customer} • {selectedGalleryFolder.unit}</p>
                                     </div>
-                                    <button onClick={() => setSelectedGalleryFolder(null)} className="text-blue-400 hover:text-blue-800 bg-white p-2 w-10 h-10 flex items-center justify-center rounded-full border border-blue-200 shadow-sm transition-colors"><i className="fa-solid fa-xmark"></i></button>
+                                    <div className="flex items-center gap-3">
+                                        {orderFiles.length > 0 && (
+                                            <button onClick={() => handleDownloadZip(selectedGalleryFolder)} disabled={isZipping} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-colors flex items-center gap-2 disabled:opacity-50">
+                                                {isZipping ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Zipping...</> : <><i className="fa-solid fa-file-zipper"></i> Download ZIP</>}
+                                            </button>
+                                        )}
+                                        <button onClick={() => setSelectedGalleryFolder(null)} className="text-blue-400 hover:text-blue-800 bg-white p-2 w-10 h-10 flex items-center justify-center rounded-full border border-blue-200 shadow-sm transition-colors"><i className="fa-solid fa-xmark"></i></button>
+                                    </div>
                                 </div>
                                 <div className="p-6 overflow-y-auto flex-1 bg-slate-100">
                                     {orderFiles.length > 0 ? (
