@@ -470,6 +470,30 @@
                 setIsSaving(false);
             };
 
+            const handleAddTechnician = async (e) => {
+                e.preventDefault();
+                setIsSaving(true);
+                const formData = new FormData(e.target);
+                const name = formData.get('name');
+                const phone = formData.get('phone');
+                // Generate a random access code for the technician
+                const access_code = 'TECH_' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+                try {
+                    const { data, error } = await supabase.from('technicians').insert([{ name, phone, access_code }]).select();
+                    if (error) throw error;
+                    if (data) {
+                        setTechnicians([data[0], ...technicians]);
+                        setShowTechModal(false);
+                    }
+                } catch (error) {
+                    console.error("Gagal menambah teknisi:", error);
+                    alert("Gagal menambahkan teknisi. Periksa koneksi atau database.");
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
             if (isInitialLoading) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
@@ -1439,6 +1463,33 @@
                                         {transactions.filter(t => t.category === showCashDetailModal.type).length === 0 && <div className="py-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 opacity-30 block"></i>Belum ada transaksi di kas ini.</div>}
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Modal Tambah Teknisi (Yang Tadi Hilang) */}
+                    {showTechModal && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden border border-slate-200">
+                                <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center">
+                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className="fa-solid fa-user-plus text-red-600"></i> Tambah Teknisi</h3>
+                                    <button onClick={() => setShowTechModal(false)} className="text-slate-400 hover:text-slate-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <form onSubmit={handleAddTechnician} className="p-6 space-y-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Panggilan / Lengkap</label>
+                                        <input type="text" name="name" required placeholder="Cth: Away" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nomor WA Aktif</label>
+                                        <input type="text" name="phone" required placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                    </div>
+                                    <div className="pt-4 border-t border-slate-100">
+                                        <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
+                                            {isSaving ? 'Menyimpan...' : 'Simpan & Buat Akses'}
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     )}
