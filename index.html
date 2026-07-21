@@ -52,6 +52,11 @@
             return cleanPhone;
         };
 
+        const getLocalDateString = (d) => {
+            const tzOffset = d.getTimezoneOffset() * 60000;
+            return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
+        };
+
         const copyToClipboard = (text, customAlert = 'Teks berhasil disalin!') => {
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(text).then(() => alert(customAlert));
@@ -301,20 +306,22 @@
                             <div className="flex-1 relative order-2 sm:order-1">
                                 <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">Informasi Pembayaran</p>
                                 <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2">
-                                    <p className="font-black text-blue-800 text-lg sm:text-xl tracking-wider mb-1">638-042-8651 <span className="text-xs sm:text-sm text-blue-600 font-bold">(BCA)</span></p>
-                                    <p className="text-xs sm:text-sm font-bold text-slate-600 mb-3">A.n: Saepul Anwar</p>
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-2">
+                                    <div>
+                                        <p className="font-black text-blue-800 text-lg sm:text-xl tracking-wider mb-0.5">638-042-8651 <span className="text-xs sm:text-sm text-blue-600 font-bold">(BCA)</span></p>
+                                        <p className="text-xs sm:text-sm font-bold text-slate-600 mb-1">A.n: Saepul Anwar</p>
+                                    </div>
                                     {isStandalone && (
-                                        <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 w-full sm:w-auto">
+                                        <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 w-full sm:w-auto mt-1">
                                             <i className="fa-regular fa-copy"></i> Salin Rekening
                                         </button>
                                     )}
                                 </div>
                             </div>
                             
-                            <div className="flex-1 flex flex-col items-center sm:items-end justify-end pt-2 text-center sm:text-right order-1 sm:order-2">
+                            <div className="flex-1 flex flex-col items-center sm:items-end justify-end pt-2 text-center sm:text-right order-1 sm:order-2 relative">
                                 <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
-                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-32 sm:w-48 object-contain mix-blend-multiply opacity-90 -my-4 sm:-my-6 relative z-0" />
+                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-48 sm:w-56 object-contain mix-blend-multiply opacity-90 -my-8 sm:-my-10 relative z-0 pointer-events-none" />
                                 <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center sm:text-right z-10 relative">Admin Servisika</p>
                             </div>
                         </div>
@@ -476,7 +483,6 @@
                 const formData = new FormData(e.target);
                 const name = formData.get('name');
                 const phone = formData.get('phone');
-                // Generate a random access code for the technician
                 const access_code = 'TECH_' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
                 try {
@@ -488,7 +494,7 @@
                     }
                 } catch (error) {
                     console.error("Gagal menambah teknisi:", error);
-                    alert("Gagal menambahkan teknisi. Periksa koneksi atau database.");
+                    alert("Gagal menambahkan teknisi. Pastikan RLS sudah didisable di Supabase.");
                 } finally {
                     setIsSaving(false);
                 }
@@ -617,12 +623,54 @@
             };
 
             const renderDashboard = () => {
+                const todayStr = getLocalDateString(new Date());
                 let displayOrders = orders;
                 if (dashFilter === 'aktif') displayOrders = orders.filter(o => isOrderActive(o.status));
                 else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
                 else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
-                const upcomingList = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain')).slice(0, 10);
+                const activeFiltered = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
+                const overdueList = activeFiltered.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
+                const todayUpcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date)).slice(0, 10);
+
+                const renderOrderItem = (o) => {
+                    const waPhone = getCleanPhone(o.phone);
+                    const totalPemasukan = (o.order_parts || []).reduce((sum, p) => sum + (p.is_estimate ? 0 : Number(p.price)), 0);
+                    return (
+                        <div key={o.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors bg-white">
+                            <div className="flex gap-4 items-start flex-1">
+                                <div className="bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 text-center shrink-0 w-20 shadow-sm relative overflow-hidden mt-1">
+                                    <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
+                                    <p className="text-xl font-black text-slate-800 leading-none mt-0.5">{new Date(o.date).getDate()}</p>
+                                </div>
+                                <div className="overflow-hidden flex-1">
+                                    <div className="flex items-center gap-2">
+                                        <p className="font-black text-slate-800 text-base truncate">{o.customer}</p>
+                                        {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
+                                    </div>
+                                    <p className="text-xs font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
+                                    <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
+                                    <p className="text-[10px] font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-0.5 rounded border border-emerald-200">
+                                        <i className="fa-solid fa-rupiah-sign"></i> Potensi Pemasukan: {formatRupiah(totalPemasukan)}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
+                                <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
+                                    <i className="fa-solid fa-helmet-safety"></i> {o.technician_name === 'Belum Ditugaskan' ? <span className="text-red-500">Belum Ditugaskan</span> : o.technician_name}
+                                </span>
+                                <span className={`text-[9px] font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
+                                    o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                    o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                    o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
+                                    o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                    'bg-red-50 text-red-700 border-red-200'
+                                }`}>{o.status}</span>
+                            </div>
+                        </div>
+                    );
+                };
 
                 return (
                 <div className="space-y-6 fade-in max-w-6xl mx-auto">
@@ -678,42 +726,23 @@
                                 <button onClick={() => setActiveTab('jadwal')} className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg transition-colors border border-red-100 active:scale-95">Lihat Semua <i className="fa-solid fa-arrow-right"></i></button>
                             )}
                         </div>
-                        <div className="divide-y divide-slate-100">
-                            {upcomingList.map(o => {
-                                const waPhone = getCleanPhone(o.phone);
-                                return (
-                                <div key={o.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
-                                    <div className="flex gap-4 items-center flex-1">
-                                        <div className="bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 text-center shrink-0 w-20 shadow-sm relative overflow-hidden">
-                                            <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
-                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
-                                            <p className="text-xl font-black text-slate-800 leading-none mt-0.5">{new Date(o.date).getDate()}</p>
-                                        </div>
-                                        <div className="overflow-hidden flex-1">
-                                            <div className="flex items-center gap-2">
-                                                <p className="font-black text-slate-800 text-base truncate">{o.customer}</p>
-                                                {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
-                                            </div>
-                                            <p className="text-xs font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
-                                            <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
-                                        <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
-                                            <i className="fa-solid fa-helmet-safety"></i> {o.technician_name === 'Belum Ditugaskan' ? <span className="text-red-500">Belum Ditugaskan</span> : o.technician_name}
-                                        </span>
-                                        <span className={`text-[9px] font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
-                                            o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                            o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                            o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
-                                            o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                            'bg-red-50 text-red-700 border-red-200'
-                                        }`}>{o.status}</span>
-                                    </div>
+                        <div className="divide-y divide-slate-100 bg-slate-50">
+                            {overdueList.length > 0 && (
+                                <div className="bg-orange-50/80 p-2.5 px-4 border-b border-orange-100 flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                                    <p className="text-xs font-black text-orange-700 uppercase tracking-widest">Tertunda / Pengerjaan Lanjutan</p>
                                 </div>
-                            )})}
-                            {upcomingList.length === 0 && (
-                                <div className="p-12 text-center text-slate-400">
+                            )}
+                            {overdueList.map(renderOrderItem)}
+                            
+                            <div className="bg-slate-100/80 p-2.5 px-4 border-b border-slate-200 flex items-center gap-2">
+                                <i className="fa-solid fa-calendar-day text-slate-400"></i>
+                                <p className="text-xs font-black text-slate-600 uppercase tracking-widest">Hari Ini & Mendatang</p>
+                            </div>
+                            {todayUpcomingList.map(renderOrderItem)}
+                            
+                            {(overdueList.length === 0 && todayUpcomingList.length === 0) && (
+                                <div className="p-12 text-center text-slate-400 bg-white">
                                     <i className="fa-solid fa-calendar-check text-4xl mb-3 text-slate-300 block"></i>
                                     <p className="text-sm font-bold">Tidak ada pengerjaan aktif saat ini.</p>
                                 </div>
@@ -1039,20 +1068,80 @@
             );
 
             const renderTeknisiPortal = () => {
-                const myOrders = orders.filter(o => o.technician_name === currentUser.name && isOrderActive(o.status) || o.status.includes('Komplain'));
+                const todayStr = getLocalDateString(new Date());
+                const myOrders = orders.filter(o => o.technician_name === currentUser.name && (isOrderActive(o.status) || o.status.includes('Komplain')));
                 
-                // Real weekly schedule logic
-                const daysOfWeek = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
-                const scheduleMap = {};
-                daysOfWeek.forEach(d => scheduleMap[d] = []);
-                
-                myOrders.forEach(order => {
-                    if(order.date) {
-                        const dateObj = new Date(order.date);
-                        const dayName = daysOfWeek[dateObj.getDay()];
-                        scheduleMap[dayName].push(order);
-                    }
+                const todayOrders = myOrders.filter(o => o.date === todayStr);
+                const overdueOrders = myOrders.filter(o => o.date < todayStr);
+
+                const todayDateObj = new Date();
+                const dayOfWeek = todayDateObj.getDay(); 
+                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const mondayDate = new Date(todayDateObj);
+                mondayDate.setDate(diffToMonday);
+
+                const daysOfWkIndo = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+                const weeklySchedule = Array.from({length: 7}, (_, i) => {
+                    const d = new Date(mondayDate);
+                    d.setDate(mondayDate.getDate() + i);
+                    const dStr = getLocalDateString(d);
+                    return {
+                        dateStr: dStr,
+                        dayName: daysOfWkIndo[i],
+                        displayDate: d.toLocaleDateString('id-ID', {day:'numeric', month:'short'}),
+                        dailyOrders: myOrders.filter(o => o.date === dStr)
+                    };
                 });
+
+                const renderTechOrderCard = (o) => {
+                    const finalWaPhone = getCleanPhone(o.phone);
+                    return (
+                        <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
+                            <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                                o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
+                                o.status.includes('Komplain') ? 'bg-orange-500' :
+                                o.status.includes('Selesai') ? 'bg-emerald-500' : 
+                                'bg-red-500'
+                            }`}></div>
+                            <div className="p-5 pb-4">
+                                <div className="flex justify-between items-start mb-4">
+                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
+                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
+                                        o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                        o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                        o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                        'bg-red-50 text-red-700 border-red-200'
+                                    }`}>{o.status}</span>
+                                </div>
+                                
+                                <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
+                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
+                                <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
+                                
+                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
+                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1.5 flex items-center gap-1"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Kendala Laporan:</p>
+                                    <p className="font-bold text-slate-800 text-sm leading-relaxed">{o.issue}</p>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
+                                        <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
+                                    </a>
+                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
+                                        <i className="fa-regular fa-copy text-lg"></i>
+                                    </button>
+                                    <a href={`https://maps.google.com/?q=${encodeURIComponent(o.address)}`} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
+                                        <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
+                                    </a>
+                                </div>
+                            </div>
+                            <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
+                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
+                            </div>
+                        </div>
+                    );
+                };
 
                 return (
                     <div className="space-y-6 max-w-lg mx-auto pb-10 fade-in">
@@ -1070,78 +1159,48 @@
                         </div>
 
                         {jadwalTab === 'list' ? (
-                            <div className="space-y-4">
-                                {myOrders.map(o => {
-                                    const finalWaPhone = getCleanPhone(o.phone);
-                                    return (
-                                        <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
-                                            <div className={`absolute top-0 left-0 w-1.5 h-full ${
-                                                o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
-                                                o.status.includes('Komplain') ? 'bg-orange-500' :
-                                                o.status.includes('Selesai') ? 'bg-emerald-500' : 
-                                                'bg-red-500'
-                                            }`}></div>
-                                            <div className="p-5 pb-4">
-                                                <div className="flex justify-between items-start mb-4">
-                                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
-                                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
-                                                        o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                                        o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                        o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                                        'bg-red-50 text-red-700 border-red-200'
-                                                    }`}>{o.status}</span>
-                                                </div>
-                                                
-                                                <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
-                                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
-                                                <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
-                                                
-                                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
-                                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1.5 flex items-center gap-1"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Kendala Laporan:</p>
-                                                    <p className="font-bold text-slate-800 text-sm leading-relaxed">{o.issue}</p>
-                                                </div>
-
-                                                <div className="flex gap-2">
-                                                    <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
-                                                        <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
-                                                    </a>
-                                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
-                                                        <i className="fa-regular fa-copy text-lg"></i>
-                                                    </button>
-                                                    <a href={`https://maps.google.com/?q=${encodeURIComponent(o.address)}`} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
-                                                        <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
-                                                    </a>
-                                                </div>
-                                            </div>
-                                            <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                                <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
-                                            </div>
+                            <div className="space-y-6">
+                                {overdueOrders.length > 0 && (
+                                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl">
+                                        <h3 className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <i className="fa-solid fa-clock-rotate-left"></i> Pengerjaan Tertunda / Berlanjut
+                                        </h3>
+                                        <div className="space-y-4">
+                                            {overdueOrders.map(renderTechOrderCard)}
                                         </div>
-                                    )
-                                })}
-                                {myOrders.length === 0 && (
-                                    <div className="text-center bg-white border border-slate-200 rounded-2xl p-12 shadow-sm">
-                                        <i className="fa-regular fa-face-smile text-5xl text-slate-300 mb-4 block"></i>
-                                        <p className="text-slate-800 font-bold text-lg mb-1">Pekerjaan Beres!</p>
-                                        <p className="text-slate-500 font-medium text-sm">Tidak ada antrean tugas saat ini.</p>
                                     </div>
                                 )}
+
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <i className="fa-solid fa-calendar-day"></i> Jadwal Hari Ini ({new Date().toLocaleDateString('id-ID', {day:'numeric', month:'short'})})
+                                    </h3>
+                                    <div className="space-y-4">
+                                        {todayOrders.map(renderTechOrderCard)}
+                                        {todayOrders.length === 0 && (
+                                            <div className="text-center bg-white border border-slate-200 rounded-2xl p-10 shadow-sm">
+                                                <i className="fa-regular fa-face-smile text-4xl text-slate-300 mb-3 block"></i>
+                                                <p className="text-slate-800 font-bold text-sm mb-1">Jadwal Kosong</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                         ) : (
                             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2"><i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan</h3>
+                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2">
+                                    <i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan
+                                </h3>
                                 <div className="space-y-4">
-                                    {daysOfWeek.slice(1).concat(daysOfWeek[0]).map((day) => {
-                                        const dailyOrders = scheduleMap[day];
-                                        return (
-                                        <div key={day} className="flex gap-4 items-start border-l-2 border-slate-100 pl-4 py-1 relative">
-                                            <div className="absolute -left-[5px] top-2 w-2 h-2 rounded-full bg-slate-300"></div>
+                                    {weeklySchedule.map((dayData) => (
+                                        <div key={dayData.dateStr} className="flex gap-4 items-start border-l-2 border-slate-100 pl-4 py-1 relative">
+                                            <div className={`absolute -left-[5px] top-2 w-2 h-2 rounded-full ${dayData.dateStr === todayStr ? 'bg-red-500 animate-pulse' : 'bg-slate-300'}`}></div>
                                             <div className="w-16 shrink-0 mt-0.5">
-                                                <p className="text-xs font-black text-slate-600 uppercase tracking-widest">{day}</p>
+                                                <p className="text-xs font-black text-slate-600 uppercase tracking-widest">{dayData.dayName}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold">{dayData.displayDate}</p>
                                             </div>
                                             <div className="flex-1 space-y-2">
-                                                {dailyOrders.length > 0 ? dailyOrders.map(o => (
+                                                {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
                                                     <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
                                                         <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
                                                         <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
@@ -1149,7 +1208,7 @@
                                                 )) : <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest mt-1">Kosong</p>}
                                             </div>
                                         </div>
-                                    )})}
+                                    ))}
                                 </div>
                             </div>
                         )}
@@ -1467,7 +1526,7 @@
                         </div>
                     )}
                     
-                    {/* Modal Tambah Teknisi (Yang Tadi Hilang) */}
+                    {/* Modal Tambah Teknisi */}
                     {showTechModal && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
                             <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden border border-slate-200">
