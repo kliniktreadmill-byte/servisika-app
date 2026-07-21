@@ -86,8 +86,8 @@
             const [orders, setOrders] = useState([]);
 
             // Modals & UI State
-            const [dashFilter, setDashFilter] = useState(null); // 'aktif', 'selesai', 'pending'
-            const [jadwalTab, setJadwalTab] = useState('aktif'); // 'aktif', 'arsip'
+            const [dashFilter, setDashFilter] = useState(null); 
+            const [jadwalTab, setJadwalTab] = useState('aktif'); 
             const [jadwalFilterTech, setJadwalFilterTech] = useState('');
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState('');
             
@@ -95,10 +95,12 @@
             const [showOrderModal, setShowOrderModal] = useState(false);
             const [selectedOrder, setSelectedOrder] = useState(null);
             const [modalParts, setModalParts] = useState([]); 
+            
             const [showFinanceModal, setShowFinanceModal] = useState(false);
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
             const [showTechModal, setShowTechModal] = useState(false);
             
+            const [selectedGalleryFolder, setSelectedGalleryFolder] = useState(null);
             const [isSaving, setIsSaving] = useState(false);
 
             useEffect(() => {
@@ -210,16 +212,26 @@
                 return transactions.filter(trx => {
                     const matchSearch = trx.description.toLowerCase().includes(financeFilter.search.toLowerCase());
                     const matchCategory = financeFilter.category === 'Semua' || trx.category === financeFilter.category;
-                    const matchStart = financeFilter.startDate ? trx.date >= financeFilter.startDate : true;
-                    const matchEnd = financeFilter.endDate ? trx.date <= financeFilter.endDate : true;
+                    
+                    let matchStart = true;
+                    let matchEnd = true;
+                    if (financeFilter.startDate) {
+                        matchStart = new Date(trx.date) >= new Date(financeFilter.startDate);
+                    }
+                    if (financeFilter.endDate) {
+                        matchEnd = new Date(trx.date) <= new Date(financeFilter.endDate);
+                    }
+                    
                     return matchSearch && matchCategory && matchStart && matchEnd;
                 });
             }, [transactions, financeFilter]);
 
-            const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
+            const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status) && !status.includes('Selesai');
 
             const InvoiceTemplate = ({ order, isStandalone = false }) => {
-                const total = (order.order_parts || []).reduce((s, p) => s + Number(p.price), 0);
+                const parts = order.order_parts || [];
+                const total = parts.reduce((s, p) => s + (p.is_estimate ? 0 : Number(p.price)), 0);
+                
                 return (
                     <div className="bg-white p-4 sm:p-8 max-w-3xl mx-auto rounded-xl shadow-lg border border-slate-100 text-slate-800" id="printable-invoice">
                         <div className="flex flex-col sm:flex-row justify-between border-b-2 border-red-600 pb-4 sm:pb-6 mb-6 sm:mb-8 gap-4">
@@ -249,54 +261,61 @@
                             </div>
                         </div>
 
-                        <div className="rounded-xl overflow-hidden border border-slate-200 mb-8 overflow-x-auto w-full">
-                            <table className="w-full text-left text-sm min-w-[500px]">
-                                <thead>
-                                    <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
-                                        <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs">Deskripsi (Jasa & Sparepart)</th>
-                                        <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-center">Garansi</th>
-                                        <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-right">Harga (Rp)</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {(order.order_parts || []).map((p, i) => (
-                                        <tr key={i} className="border-b border-slate-100 last:border-0 bg-white">
-                                            <td className="p-3 sm:p-4 font-bold text-slate-800 text-xs sm:text-sm">{p.name}</td>
-                                            <td className="p-3 sm:p-4 text-center text-slate-500 font-medium text-xs sm:text-sm">{p.warranty_months > 0 ? `${p.warranty_months} Bln` : '-'}</td>
-                                            <td className="p-3 sm:p-4 text-right font-black text-slate-800 text-sm whitespace-nowrap">{formatRupiah(p.price)}</td>
+                        <div className="rounded-xl overflow-hidden border border-slate-200 mb-8 w-full">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-sm min-w-[500px]">
+                                    <thead>
+                                        <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs">Deskripsi (Jasa & Sparepart)</th>
+                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-center">Garansi</th>
+                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-right">Harga (Rp)</th>
                                         </tr>
-                                    ))}
-                                    <tr className="bg-slate-800 text-white">
-                                        <td colSpan="2" className="p-4 sm:p-5 text-right font-black uppercase tracking-wider text-xs sm:text-sm">TOTAL TAGIHAN:</td>
-                                        <td className="p-4 sm:p-5 text-right font-black text-lg sm:text-xl whitespace-nowrap">{formatRupiah(total)}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody>
+                                        {parts.map((p, i) => (
+                                            <tr key={i} className="border-b border-slate-100 last:border-0 bg-white">
+                                                <td className="p-3 sm:p-4 font-bold text-slate-800 text-xs sm:text-sm">
+                                                    {p.name}
+                                                    {p.is_estimate && <span className="ml-2 bg-orange-100 text-orange-700 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Estimasi</span>}
+                                                </td>
+                                                <td className="p-3 sm:p-4 text-center text-slate-500 font-medium text-xs sm:text-sm">{p.warranty_months > 0 ? `${p.warranty_months} Bln` : '-'}</td>
+                                                <td className="p-3 sm:p-4 text-right font-black text-slate-800 text-sm whitespace-nowrap">
+                                                    {p.is_estimate ? (
+                                                        <span className="text-orange-600 text-xs">{p.estimate_text || 'Menunggu Info'}</span>
+                                                    ) : (
+                                                        formatRupiah(p.price)
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        <tr className="bg-slate-800 text-white">
+                                            <td colSpan="2" className="p-4 sm:p-5 text-right font-black uppercase tracking-wider text-xs sm:text-sm">TOTAL TAGIHAN:</td>
+                                            <td className="p-4 sm:p-5 text-right font-black text-lg sm:text-xl whitespace-nowrap">{formatRupiah(total)}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row justify-between gap-8">
-                            <div className="flex-1 relative">
+                        <div className="flex flex-col sm:flex-row justify-between gap-8 mt-4">
+                            <div className="flex-1 relative order-2 sm:order-1">
                                 <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">Informasi Pembayaran</p>
                                 <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 relative">
-                                    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-                                        <div>
-                                            <p className="font-black text-blue-800 text-lg sm:text-xl tracking-wider whitespace-nowrap">638 - 042 - 8651 <span className="text-xs sm:text-sm text-blue-600">(BCA)</span></p>
-                                            <p className="text-xs sm:text-sm font-bold text-slate-600 mt-1">A.n: Saepul Anwar</p>
-                                        </div>
-                                        {isStandalone && (
-                                            <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="w-fit bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm active:scale-95 whitespace-nowrap">
-                                                <i className="fa-regular fa-copy"></i> Salin Rekening
-                                            </button>
-                                        )}
-                                    </div>
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2">
+                                    <p className="font-black text-blue-800 text-lg sm:text-xl tracking-wider mb-1">638-042-8651 <span className="text-xs sm:text-sm text-blue-600 font-bold">(BCA)</span></p>
+                                    <p className="text-xs sm:text-sm font-bold text-slate-600 mb-3">A.n: Saepul Anwar</p>
+                                    {isStandalone && (
+                                        <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 w-full sm:w-auto">
+                                            <i className="fa-regular fa-copy"></i> Salin Rekening
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                             
-                            <div className="flex-1 flex flex-col items-center sm:items-end justify-center sm:justify-end pt-2 text-center sm:text-right">
-                                <p className="text-sm font-bold text-slate-500 mb-2">Hormat Kami,</p>
-                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="h-24 sm:h-32 object-contain mb-1 mix-blend-multiply opacity-90" />
-                                <p className="font-black text-slate-800 border-t border-slate-200 pt-2 w-48 text-center sm:text-right">Admin Servisika</p>
+                            <div className="flex-1 flex flex-col items-center sm:items-end justify-end pt-2 text-center sm:text-right order-1 sm:order-2">
+                                <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
+                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-32 sm:w-48 object-contain mix-blend-multiply opacity-90 -my-4 sm:-my-6 relative z-0" />
+                                <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center sm:text-right z-10 relative">Admin Servisika</p>
                             </div>
                         </div>
                         
@@ -350,23 +369,26 @@
                 const phone = formData.get('phone') || selectedOrder.phone;
                 const date = formData.get('date') || selectedOrder.date;
                 const technician_name = formData.get('technician') || selectedOrder.technician_name;
+                const time_estimate = formData.get('time_estimate') || selectedOrder.time_estimate || '';
 
                 try {
-                    await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name }).eq('id', selectedOrder.id);
+                    await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name, time_estimate }).eq('id', selectedOrder.id);
                     
                     await supabase.from('order_parts').delete().eq('order_id', selectedOrder.id);
                     const partsToInsert = modalParts.filter(p => p.name.trim() !== '').map(p => ({
                         order_id: selectedOrder.id,
                         name: p.name,
                         price: parseCurrency(p.price),
-                        warranty_months: Number(p.warranty_months || 0)
+                        warranty_months: Number(p.warranty_months || 0),
+                        is_estimate: p.is_estimate || false,
+                        estimate_text: p.estimate_text || ''
                     }));
                     if(partsToInsert.length > 0) {
                         await supabase.from('order_parts').insert(partsToInsert);
                     }
 
                     if(status === 'Lunas' && selectedOrder.status !== 'Lunas' && role === 'admin') {
-                        const totalAmount = partsToInsert.reduce((sum, p) => sum + p.price, 0);
+                        const totalAmount = partsToInsert.reduce((sum, p) => sum + (p.is_estimate ? 0 : p.price), 0);
                         if(totalAmount > 0) {
                             const newTrx = {
                                 date: new Date().toISOString().split('T')[0],
@@ -385,7 +407,7 @@
                     setShowOrderModal(false);
                 } catch (error) {
                     console.error("Gagal simpan:", error);
-                    alert('Gagal menyimpan data ke database.');
+                    alert('Gagal menyimpan data ke database. Cek console log.');
                 } finally {
                     setIsSaving(false);
                 }
@@ -423,21 +445,6 @@
                 }
             };
 
-            const handleAddTechnician = async (e) => {
-                e.preventDefault();
-                setIsSaving(true);
-                const formData = new FormData(e.target);
-                const randomCode = 'tech_' + Math.random().toString(36).substring(2, 8);
-                const newTech = { name: formData.get('name'), phone: formData.get('phone'), access_code: randomCode };
-                
-                const { data, error } = await supabase.from('technicians').insert([newTech]).select();
-                if (!error && data) {
-                    setTechnicians([data[0], ...technicians]);
-                    setShowTechModal(false);
-                }
-                setIsSaving(false);
-            };
-
             const handleCreateOrder = async (e) => {
                 e.preventDefault();
                 setIsSaving(true);
@@ -449,11 +456,12 @@
                     phone: formData.get('phone'), address: formData.get('address'),
                     unit: formData.get('unit'), issue: formData.get('issue'),
                     technician_name: technician_name, status: 'Proses',
+                    time_estimate: formData.get('time_estimate') || '',
                     order_id_text: 'ORD-' + Math.floor(Math.random() * 10000)
                 };
                 const { data, error } = await supabase.from('orders').insert([newOrder]).select();
                 if (!error && data) {
-                    const defaultPart = { order_id: data[0].id, name: 'Jasa Kunjungan & Pengecekan', price: 250000, warranty_months: 0 };
+                    const defaultPart = { order_id: data[0].id, name: 'Jasa Kunjungan & Pengecekan', price: 250000, warranty_months: 0, is_estimate: false };
                     await supabase.from('order_parts').insert([defaultPart]);
                     const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
                     if(ordData) setOrders(ordData);
@@ -501,7 +509,7 @@
                                     <div className="absolute left-0 top-0 h-full w-1 bg-slate-400"></div>
                                     <h3 className="text-xs font-black text-slate-600 uppercase tracking-widest mb-3 flex items-center gap-2"><i className="fa-solid fa-shield-halved"></i> Akses Admin</h3>
                                     <div className="flex gap-2">
-                                        <input type="password" name="pin" placeholder="Masukkan PIN Rahasia" required className="flex-1 p-3 rounded-xl border border-slate-300 outline-none focus:border-slate-500 text-sm font-bold text-center bg-white" />
+                                        <input type="password" name="pin" placeholder="Masukkan PIN" required className="flex-1 p-3 rounded-xl border border-slate-300 outline-none focus:border-slate-500 text-sm font-bold text-center bg-white" />
                                         <button type="submit" className="bg-slate-800 hover:bg-slate-900 text-white px-5 rounded-xl font-bold text-sm transition-colors shadow-md active:scale-95">Masuk</button>
                                     </div>
                                 </form>
@@ -647,7 +655,9 @@
                             )}
                         </div>
                         <div className="divide-y divide-slate-100">
-                            {upcomingList.map(o => (
+                            {upcomingList.map(o => {
+                                const waPhone = getCleanPhone(o.phone);
+                                return (
                                 <div key={o.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors">
                                     <div className="flex gap-4 items-center flex-1">
                                         <div className="bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 text-center shrink-0 w-20 shadow-sm relative overflow-hidden">
@@ -655,10 +665,10 @@
                                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
                                             <p className="text-xl font-black text-slate-800 leading-none mt-0.5">{new Date(o.date).getDate()}</p>
                                         </div>
-                                        <div className="overflow-hidden">
+                                        <div className="overflow-hidden flex-1">
                                             <div className="flex items-center gap-2">
                                                 <p className="font-black text-slate-800 text-base truncate">{o.customer}</p>
-                                                {!isBossView && <a href={`https://wa.me/${getCleanPhone(o.phone)}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors"><i className="fa-brands fa-whatsapp"></i></a>}
+                                                {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
                                             </div>
                                             <p className="text-xs font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
                                             <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
@@ -677,11 +687,11 @@
                                         }`}>{o.status}</span>
                                     </div>
                                 </div>
-                            ))}
+                            )})}
                             {upcomingList.length === 0 && (
                                 <div className="p-12 text-center text-slate-400">
                                     <i className="fa-solid fa-calendar-check text-4xl mb-3 text-slate-300 block"></i>
-                                    <p className="text-sm font-bold">Tidak ada pengerjaan berjalan.</p>
+                                    <p className="text-sm font-bold">Tidak ada pengerjaan aktif saat ini.</p>
                                 </div>
                             )}
                         </div>
@@ -725,9 +735,12 @@
                                     <option value="">Semua Status</option>
                                     <option value="Proses">Proses</option>
                                     <option value="Pending/Tunggu Sparepart">Pending</option>
+                                    <option value="Pengerjaan Lanjutan">Pengerjaan Lanjutan</option>
                                     <option value="Jadwal Ulang">Jadwal Ulang</option>
+                                    <option value="Selesai (Belum Bayar)">Selesai (Belum Bayar)</option>
                                     <option value="Komplain (Tindak Lanjut Garansi)">Komplain</option>
                                     {jadwalTab === 'arsip' && <option value="Lunas">Lunas</option>}
+                                    {jadwalTab === 'arsip' && <option value="Batal">Batal</option>}
                                 </select>
                             </div>
                         </div>
@@ -736,7 +749,7 @@
                             <table className="w-full text-left text-sm min-w-[900px]">
                                 <thead className="bg-white text-slate-500 border-b border-slate-200">
                                     <tr>
-                                        <th className="p-4 font-bold text-xs uppercase tracking-wider">Tanggal & ID</th>
+                                        <th className="p-4 font-bold text-xs uppercase tracking-wider w-32">Hari & Tanggal</th>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider">Info Klien</th>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider">Unit & Kendala</th>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider">Teknisi & Status</th>
@@ -748,18 +761,26 @@
                                         const waPhone = getCleanPhone(o.phone);
                                         const dateObj = new Date(o.date);
                                         const dayName = dateObj.toLocaleDateString('id-ID', {weekday:'long'});
-                                        const dateStr = dateObj.toLocaleDateString('id-ID', {day:'2-digit', month:'short'});
+                                        const dateStr = dateObj.toLocaleDateString('id-ID', {day:'2-digit', month:'short', year:'numeric'});
+                                        
+                                        const techObj = technicians.find(t => t.name === o.technician_name);
+                                        const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
+                                        const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
+                                        const waTechMsg = `Halo ${o.technician_name}, ada jadwal pengerjaan baru.%0AKlien: ${o.customer}%0ATanggal: ${dateStr}%0AEstimasi Waktu: ${o.time_estimate || '-'}%0AUnit: ${o.unit}%0AKendala: ${o.issue}%0A%0ACek detailnya di portal teknisi kamu ya:%0A${magicLink}`;
+
                                         return (
                                         <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
                                             <td className="p-4 align-top">
                                                 <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">{dayName}</p>
                                                 <p className="font-black text-slate-800">{dateStr}</p>
-                                                <p className="text-[10px] text-slate-400 mt-1 font-bold">{o.order_id_text}</p>
+                                                {o.time_estimate && <p className="text-[10px] text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
+                                                <p className="text-[9px] text-slate-400 mt-1 font-bold">{o.order_id_text}</p>
                                             </td>
                                             <td className="p-4 align-top">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     <p className="font-black text-slate-800">{o.customer}</p>
-                                                    <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded hover:bg-emerald-100 transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>
+                                                    <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded hover:bg-emerald-100 transition-colors" title="Chat WA Klien"><i className="fa-brands fa-whatsapp"></i></a>
+                                                    <button onClick={() => copyToClipboard(waPhone, 'Nomor WA Klien disalin!')} className="text-slate-400 hover:text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded transition-colors" title="Salin WA Klien"><i className="fa-regular fa-copy"></i></button>
                                                 </div>
                                                 <p className="text-xs text-slate-500 truncate max-w-[200px] flex items-center gap-1 font-medium"><i className="fa-solid fa-location-dot text-slate-400"></i> {o.address}</p>
                                             </td>
@@ -768,10 +789,17 @@
                                                 <p className="text-[11px] text-red-600 font-medium mt-1 truncate max-w-[200px]">{o.issue}</p>
                                             </td>
                                             <td className="p-4 align-top">
-                                                <span className={`border text-[10px] font-bold px-2 py-0.5 rounded-md mb-2 inline-block shadow-sm ${o.technician_name === 'Belum Ditugaskan' ? 'bg-red-50 text-red-600 border-red-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
-                                                    <i className="fa-solid fa-helmet-safety mr-1 opacity-50"></i> {o.technician_name}
-                                                </span>
-                                                <br/>
+                                                <div className="mb-2">
+                                                    {techPhone ? (
+                                                        <a href={`https://wa.me/${techPhone}?text=${waTechMsg}`} target="_blank" className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
+                                                            <i className="fa-brands fa-whatsapp text-emerald-500"></i> {o.technician_name}
+                                                        </a>
+                                                    ) : (
+                                                        <span className="bg-slate-100 text-slate-600 border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm">
+                                                            <i className="fa-solid fa-helmet-safety opacity-50"></i> {o.technician_name}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <span className={`text-[9px] font-bold px-2 py-1 rounded uppercase tracking-wider border shadow-sm inline-block ${
                                                     o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
                                                     o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
@@ -781,7 +809,7 @@
                                                 }`}>{o.status}</span>
                                             </td>
                                             <td className="p-4 text-center align-top">
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95">Detail / Edit</button>
+                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
                                             </td>
                                         </tr>
                                     )})}
@@ -805,13 +833,16 @@
                         </div>
 
                         <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 shadow-sm bg-blue-50/50">
-                            <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage</p>
-                            <p className="text-xs text-blue-600">Folder di bawah ini digenerate secara otomatis berdasarkan data Order. Fitur upload real ke Supabase Storage akan diaktifkan pada tahap finalisasi backend.</p>
+                            <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage Folder</p>
+                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat dokumentasi yang diupload teknisi. (Saat ini sistem Storage nyata sedang disiapkan).</p>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                             {orders.map(o => (
-                                <div key={o.id} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col hover:border-blue-300 hover:shadow-md transition-all group">
+                                <div key={o.id} onClick={() => setSelectedGalleryFolder(o)} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <i className="fa-solid fa-arrow-up-right-from-square text-blue-500"></i>
+                                    </div>
                                     <div className="flex items-start gap-4 mb-3">
                                         <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
                                             <i className="fa-solid fa-folder-open text-blue-500 text-2xl"></i>
@@ -827,9 +858,7 @@
                                     </div>
                                     <div className="flex justify-between items-center border-t border-slate-100 pt-3">
                                         <span className="text-[10px] text-slate-400 font-bold">0 File(s)</span>
-                                        <button className="bg-slate-100 text-slate-600 hover:bg-blue-50 hover:text-blue-600 py-1.5 px-3 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5">
-                                            <i className="fa-solid fa-cloud-arrow-down"></i> Unduh Folder
-                                        </button>
+                                        <span className="text-blue-600 text-[10px] font-bold uppercase tracking-wider">Buka Folder <i className="fa-solid fa-chevron-right ml-1"></i></span>
                                     </div>
                                 </div>
                             ))}
@@ -940,9 +969,8 @@
                         {technicians.map(tech => {
                             const cleanPhone = getCleanPhone(tech.phone);
                             const magicLink = `${window.location.origin}${window.location.pathname}?tech=${tech.access_code}`;
-                            // Clean space/dash free WA logic
                             const waMessage = `Halo ${tech.name}, ini akses khusus Aplikasi Lapangan Servisika Anda.\n\nKlik link di bawah ini untuk masuk otomatis tanpa password:\n\n${magicLink}\n\nMohon simpan pesan ini.`;
-                            const waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(waMessage)}`;
+                            const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waMessage)}`;
 
                             return (
                                 <div key={tech.id} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm relative flex flex-col hover:shadow-md transition-shadow">
@@ -970,12 +998,12 @@
                                     <div className="mt-auto flex flex-col gap-2">
                                         <p className="text-[10px] text-slate-400 font-bold text-center mb-1">Bagikan Akses Login:</p>
                                         <div className="flex gap-2">
-                                            <button onClick={() => copyToClipboard(`Halo ${tech.name}, link portal teknisi kamu:\n${magicLink}`, 'Pesan WA berhasil disalin! Silakan paste di WhatsApp Teknisi.')} className="flex-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
+                                            <button onClick={() => copyToClipboard(`Halo ${tech.name}, link portal teknisi kamu:\n${magicLink}`, 'Link WA berhasil disalin! Silakan paste manual jika klik WA error.')} className="flex-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
                                                 <i className="fa-regular fa-copy text-sm"></i> Salin Link
                                             </button>
-                                            <button onClick={() => window.open(waUrl, '_blank')} className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
+                                            <a href={waUrl} target="_blank" className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
                                                 <i className="fa-brands fa-whatsapp text-lg"></i> Kirim WA
-                                            </button>
+                                            </a>
                                         </div>
                                     </div>
                                 </div>
@@ -1014,12 +1042,12 @@
 
                         <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200">
                             <button onClick={() => setJadwalTab('list')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'list' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Tugas Terkini</button>
-                            <button onClick={() => setJadwalTab('calendar')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'calendar' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Jadwal Seminggu</button>
+                            <button onClick={() => setJadwalTab('calendar')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'calendar' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Jadwal Mingguan</button>
                         </div>
 
                         {jadwalTab === 'list' ? (
                             <div className="space-y-4">
-                                {myOrders.slice(0, 10).map(o => {
+                                {myOrders.map(o => {
                                     const finalWaPhone = getCleanPhone(o.phone);
                                     return (
                                         <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
@@ -1031,7 +1059,7 @@
                                             }`}></div>
                                             <div className="p-5 pb-4">
                                                 <div className="flex justify-between items-start mb-4">
-                                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest"><i className="fa-regular fa-calendar mr-1"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
+                                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
                                                     <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
                                                         o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
                                                         o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
@@ -1041,6 +1069,7 @@
                                                 </div>
                                                 
                                                 <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
+                                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
                                                 <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
                                                 
                                                 <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
@@ -1052,7 +1081,7 @@
                                                     <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
                                                         <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
                                                     </a>
-                                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin!')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
+                                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
                                                         <i className="fa-regular fa-copy text-lg"></i>
                                                     </button>
                                                     <a href={`https://maps.google.com/?q=${encodeURIComponent(o.address)}`} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
@@ -1090,7 +1119,7 @@
                                             <div className="flex-1 space-y-2">
                                                 {dailyOrders.length > 0 ? dailyOrders.map(o => (
                                                     <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
-                                                        <p className="font-bold text-slate-800 mb-0.5">{o.customer}</p>
+                                                        <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
                                                         <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
                                                     </div>
                                                 )) : <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest mt-1">Kosong</p>}
@@ -1109,9 +1138,9 @@
                     {/* Modal Edit Order / Progress */}
                     {showOrderModal && selectedOrder && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm fade-in">
-                            <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-full overflow-hidden border border-slate-200">
+                            <div className="bg-white rounded-2xl w-full max-w-3xl shadow-2xl flex flex-col max-h-full overflow-hidden border border-slate-200 relative">
                                 
-                                <div className="bg-white border-b border-slate-200 p-5 flex justify-between items-center shrink-0 z-10 shadow-sm">
+                                <div className="bg-white border-b border-slate-200 p-5 flex justify-between items-center shrink-0 z-10 shadow-sm relative">
                                     <div className="overflow-hidden">
                                         <h3 className="font-black text-xl text-slate-800 leading-tight">{role === 'admin' ? 'Kelola Detail Pengerjaan' : 'Laporan Update Teknisi'}</h3>
                                         <p className="text-xs text-slate-500 font-bold mt-1 uppercase tracking-wider truncate">{selectedOrder.order_id_text} • {selectedOrder.customer}</p>
@@ -1119,7 +1148,7 @@
                                     <button type="button" onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 w-10 h-10 flex items-center justify-center shrink-0 rounded-full transition-colors ml-2"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
                                 
-                                <div className="p-5 sm:p-6 overflow-y-auto flex-1 bg-slate-50/50">
+                                <div className="p-5 sm:p-6 overflow-y-auto flex-1 bg-slate-50 relative pb-32">
                                     <form id="orderForm" onSubmit={handleSaveUpdateOrder} className="space-y-6">
                                         
                                         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
@@ -1160,6 +1189,10 @@
                                                         {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                                     </select>
                                                 </div>
+                                                <div>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Estimasi Waktu Datang</label>
+                                                    <input type="text" name="time_estimate" defaultValue={selectedOrder.time_estimate} placeholder="Cth: 08:00 - 10:00" className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                </div>
                                                 <div className="sm:col-span-2">
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat</label>
                                                     <textarea name="address" rows="2" defaultValue={selectedOrder.address} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
@@ -1190,7 +1223,7 @@
                                         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                                             <div className="flex justify-between items-center mb-4">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><i className="fa-solid fa-receipt"></i> Rincian Jasa & Sparepart</label>
-                                                <button type="button" onClick={() => setModalParts([...modalParts, {name: '', price: 0, warranty_months: 0}])} className="text-[10px] font-black bg-red-50 text-red-700 px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-100 uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-plus"></i> Tambah Baris</button>
+                                                <button type="button" onClick={() => setModalParts([...modalParts, {name: '', price: 0, warranty_months: 0, is_estimate: false, estimate_text: ''}])} className="text-[10px] font-black bg-red-50 text-red-700 px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-100 uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-plus"></i> Tambah Baris</button>
                                             </div>
                                             
                                             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-inner bg-slate-50">
@@ -1200,23 +1233,39 @@
                                                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Deskripsi</label>
                                                             <input type="text" value={part.name} onChange={e => { const newP = [...modalParts]; newP[idx].name = e.target.value; setModalParts(newP); }} placeholder="Cth: Ganti V-Belt..." className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
                                                         </div>
+                                                        
                                                         <div className="w-full sm:w-48 relative">
-                                                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Harga (Rp)</label>
-                                                            <span className="absolute left-3 top-[26px] text-slate-400 font-bold text-sm">Rp</span>
-                                                            <input type="text" value={formatNumberStr(part.price)} onChange={e => { const newP = [...modalParts]; newP[idx].price = parseCurrency(e.target.value); setModalParts(newP); }} className="w-full p-3 pl-9 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Harga / Tarif</label>
+                                                                <label className="text-[9px] font-bold text-orange-600 flex items-center gap-1 cursor-pointer select-none">
+                                                                    <input type="checkbox" checked={part.is_estimate} onChange={e => { const newP = [...modalParts]; newP[idx].is_estimate = e.target.checked; setModalParts(newP); }} className="accent-orange-500" />
+                                                                    Estimasi?
+                                                                </label>
+                                                            </div>
+                                                            
+                                                            {part.is_estimate ? (
+                                                                <input type="text" value={part.estimate_text} onChange={e => { const newP = [...modalParts]; newP[idx].estimate_text = e.target.value; setModalParts(newP); }} placeholder="Cth: 1 Juta - 1.5 Juta" className="w-full p-3 border border-orange-200 rounded-xl text-sm font-bold outline-none focus:border-orange-400 bg-orange-50 text-orange-700" required />
+                                                            ) : (
+                                                                <>
+                                                                    <span className="absolute left-3 top-[26px] text-slate-400 font-bold text-sm">Rp</span>
+                                                                    <input type="text" value={formatNumberStr(part.price)} onChange={e => { const newP = [...modalParts]; newP[idx].price = parseCurrency(e.target.value); setModalParts(newP); }} className="w-full p-3 pl-9 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
+                                                                </>
+                                                            )}
                                                         </div>
+                                                        
                                                         <div className="w-full sm:w-28 relative">
                                                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Garansi</label>
                                                             <input type="number" value={part.warranty_months} onChange={e => { const newP = [...modalParts]; newP[idx].warranty_months = e.target.value; setModalParts(newP); }} placeholder="0" className="w-full p-3 pr-8 border border-slate-200 rounded-xl text-sm text-center font-bold outline-none focus:border-red-400 bg-slate-50" />
                                                             <span className="absolute right-3 top-[28px] text-[10px] text-slate-500 font-bold uppercase">Bln</span>
                                                         </div>
+                                                        
                                                         <button type="button" onClick={() => { const newP = [...modalParts]; newP.splice(idx,1); setModalParts(newP); }} className="sm:absolute sm:-right-2 sm:-top-2 mt-2 sm:mt-0 bg-red-50 sm:bg-white border border-red-200 sm:border-slate-200 text-red-600 sm:text-red-500 rounded-xl sm:rounded-full w-full sm:w-6 sm:h-6 py-2 sm:py-0 flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-100 shadow-sm transition-all text-xs font-bold"><i className="fa-solid fa-trash sm:fa-xmark mr-1 sm:mr-0"></i><span className="sm:hidden">Hapus Baris</span></button>
                                                     </div>
                                                 ))}
                                                 {modalParts.length === 0 && <div className="p-6 text-center text-xs text-slate-400 font-bold uppercase tracking-wider"><i className="fa-solid fa-square-plus text-2xl mb-2 opacity-30 block"></i>Belum ada rincian. Klik Tambah Baris.</div>}
                                                 <div className="p-5 bg-slate-100 flex justify-between items-center border-t border-slate-200">
-                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Tagihan:</span>
-                                                    <span className="text-2xl font-black text-red-700">{formatRupiah(modalParts.reduce((s, p)=>s+Number(p.price),0))}</span>
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Tagihan (Pasti):</span>
+                                                    <span className="text-2xl font-black text-red-700">{formatRupiah(modalParts.reduce((s, p)=>s + (p.is_estimate ? 0 : Number(p.price)),0))}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1228,21 +1277,27 @@
                                     </form>
                                 </div>
                                 
-                                <div className="bg-white border-t border-slate-200 p-5 shrink-0 flex flex-col sm:flex-row gap-3 z-10 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                    <div className="flex gap-2 w-full sm:w-auto sm:mr-auto">
-                                        <button type="button" onClick={() => handlePrintInvoice(selectedOrder)} className="flex-1 sm:flex-none px-4 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm">
+                                <div className="absolute bottom-0 left-0 w-full bg-white border-t border-slate-200 p-4 shrink-0 flex flex-col sm:flex-row gap-3 z-20 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)]">
+                                    <div className="flex gap-2 w-full sm:w-auto sm:mr-auto overflow-x-auto pb-1 sm:pb-0">
+                                        <button type="button" onClick={() => handlePrintInvoice(selectedOrder)} className="px-4 py-3 rounded-xl font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm">
                                             <i className="fa-solid fa-file-pdf text-red-600"></i> PDF
                                         </button>
-                                        <button type="button" onClick={() => copyToClipboard(generateInvoiceLink(selectedOrder.id), 'Link Invoice berhasil disalin! Kirim ke WA Klien.')} className="flex-1 sm:flex-none px-4 py-3 rounded-xl font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap">
-                                            <i className="fa-solid fa-link"></i> Link Invoice
+                                        <button type="button" onClick={() => copyToClipboard(generateInvoiceLink(selectedOrder.id), 'Link Invoice berhasil disalin! Silakan paste dan kirim.')} className="px-4 py-3 rounded-xl font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap">
+                                            <i className="fa-solid fa-link"></i> Copy Link Inv
+                                        </button>
+                                        <button type="button" onClick={() => {
+                                            const waInvMsg = `Halo ${selectedOrder.customer}, berikut adalah link tagihan/invoice untuk pengerjaan servis alat fitness Anda:%0A${generateInvoiceLink(selectedOrder.id)}%0A%0ATerima kasih telah menggunakan jasa Servisika!`;
+                                            window.open(`https://wa.me/${getCleanPhone(selectedOrder.phone)}?text=${waInvMsg}`, '_blank');
+                                        }} className="px-4 py-3 rounded-xl font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap">
+                                            <i className="fa-brands fa-whatsapp"></i> WA Invoice
                                         </button>
                                     </div>
                                     
-                                    <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                                    <div className="flex flex-row gap-2 w-full sm:w-auto mt-2 sm:mt-0">
                                         {role === 'admin' && (
-                                            <button type="button" onClick={() => handleDeleteOrder(selectedOrder.id)} className="w-full sm:w-auto px-4 py-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors active:scale-95">Hapus Order</button>
+                                            <button type="button" onClick={() => handleDeleteOrder(selectedOrder.id)} className="flex-1 sm:flex-none px-4 py-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors active:scale-95">Hapus Order</button>
                                         )}
-                                        <button type="submit" form="orderForm" disabled={isSaving} className="w-full sm:w-auto px-8 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
+                                        <button type="submit" form="orderForm" disabled={isSaving} className="flex-[2] sm:flex-none px-6 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
                                             {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
                                         </button>
                                     </div>
@@ -1276,12 +1331,42 @@
                                             {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                         </select>
                                     </div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Estimasi Waktu Datang</label><input type="text" name="time_estimate" placeholder="Cth: 08:00 - 10:00" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
+                                    
                                     <div className="pt-2 border-t border-slate-100">
                                         <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
                                             {isSaving ? 'Menyimpan...' : 'Simpan & Buat Order'}
                                         </button>
                                     </div>
                                 </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modal Pop-up Galeri Folder */}
+                    {selectedGalleryFolder && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200">
+                                <div className="bg-blue-50 border-b border-blue-100 p-5 flex justify-between items-center">
+                                    <h3 className="font-black text-xl text-blue-800 flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Isi Folder</h3>
+                                    <button onClick={() => setSelectedGalleryFolder(null)} className="text-blue-400 hover:text-blue-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-blue-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <div className="p-6">
+                                    <p className="font-bold text-slate-800 text-lg mb-1">{selectedGalleryFolder.customer}</p>
+                                    <p className="text-xs text-slate-500 font-medium mb-4">{selectedGalleryFolder.unit} - {selectedGalleryFolder.issue}</p>
+                                    
+                                    <div className="border border-slate-200 rounded-xl bg-slate-50 p-12 text-center shadow-inner">
+                                        <i className="fa-regular fa-images text-5xl text-slate-300 mb-3 block"></i>
+                                        <p className="font-bold text-slate-600 mb-1">Belum ada file di folder ini.</p>
+                                        <p className="text-xs text-slate-400 font-medium">Fitur upload teknisi ke Supabase Storage akan segera diaktifkan.</p>
+                                    </div>
+                                    
+                                    <div className="mt-6 flex justify-end">
+                                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md transition-colors flex items-center gap-2">
+                                            <i className="fa-solid fa-download"></i> Download Folder (ZIP)
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     )}
