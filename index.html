@@ -93,6 +93,7 @@
             // Modals & UI State
             const [dashFilter, setDashFilter] = useState(null); 
             const [jadwalTab, setJadwalTab] = useState('aktif'); 
+            const [jadwalViewMode, setJadwalViewMode] = useState('semua'); // View filter for Jadwal & Order
             const [jadwalFilterTech, setJadwalFilterTech] = useState('');
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState('');
             
@@ -468,7 +469,8 @@
                 };
                 const { data, error } = await supabase.from('orders').insert([newOrder]).select();
                 if (!error && data) {
-                    const defaultPart = { order_id: data[0].id, name: 'Jasa Kunjungan & Pengecekan', price: 250000, warranty_months: 0, is_estimate: false };
+                    // Changing default part name as requested
+                    const defaultPart = { order_id: data[0].id, name: 'Jasa Layanan Servis Kunjungan', price: 250000, warranty_months: 0, is_estimate: false };
                     await supabase.from('order_parts').insert([defaultPart]);
                     const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
                     if(ordData) setOrders(ordData);
@@ -630,8 +632,11 @@
                 else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
                 const activeFiltered = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
+                
+                // Hari ini & Mendatang
+                const upcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date)).slice(0, 15);
+                // Tertunda (Lewat dari hari ini)
                 const overdueList = activeFiltered.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
-                const todayUpcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date)).slice(0, 10);
 
                 const renderOrderItem = (o) => {
                     const waPhone = getCleanPhone(o.phone);
@@ -649,6 +654,7 @@
                                         <p className="font-black text-slate-800 text-base truncate">{o.customer}</p>
                                         {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
                                     </div>
+                                    {o.time_estimate && <p className="text-[10px] text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
                                     <p className="text-xs font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
                                     <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
                                     <p className="text-[10px] font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-0.5 rounded border border-emerald-200">
@@ -727,21 +733,26 @@
                             )}
                         </div>
                         <div className="divide-y divide-slate-100 bg-slate-50">
-                            {overdueList.length > 0 && (
-                                <div className="bg-orange-50/80 p-2.5 px-4 border-b border-orange-100 flex items-center gap-2">
-                                    <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
-                                    <p className="text-xs font-black text-orange-700 uppercase tracking-widest">Tertunda / Pengerjaan Lanjutan</p>
-                                </div>
-                            )}
-                            {overdueList.map(renderOrderItem)}
                             
+                            {/* HARI INI & MENDATANG DI ATAS */}
                             <div className="bg-slate-100/80 p-2.5 px-4 border-b border-slate-200 flex items-center gap-2">
                                 <i className="fa-solid fa-calendar-day text-slate-400"></i>
                                 <p className="text-xs font-black text-slate-600 uppercase tracking-widest">Hari Ini & Mendatang</p>
                             </div>
-                            {todayUpcomingList.map(renderOrderItem)}
+                            {upcomingList.map(renderOrderItem)}
                             
-                            {(overdueList.length === 0 && todayUpcomingList.length === 0) && (
+                            {/* TERTUNDA DI BAWAH */}
+                            {overdueList.length > 0 && (
+                                <>
+                                    <div className="bg-orange-50/80 p-2.5 px-4 border-b border-orange-100 flex items-center gap-2 border-t">
+                                        <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></span>
+                                        <p className="text-xs font-black text-orange-700 uppercase tracking-widest">Tertunda / Pengerjaan Lanjutan</p>
+                                    </div>
+                                    {overdueList.map(renderOrderItem)}
+                                </>
+                            )}
+                            
+                            {(upcomingList.length === 0 && overdueList.length === 0) && (
                                 <div className="p-12 text-center text-slate-400 bg-white">
                                     <i className="fa-solid fa-calendar-check text-4xl mb-3 text-slate-300 block"></i>
                                     <p className="text-sm font-bold">Tidak ada pengerjaan aktif saat ini.</p>
@@ -754,8 +765,36 @@
             };
 
             const renderJadwal = () => {
+                const todayStr = getLocalDateString(new Date());
+                
+                // Helper untuk Filter Mingguan
+                const todayDateObj = new Date();
+                const dayOfWeek = todayDateObj.getDay(); 
+                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                
+                const mondayDate = new Date(todayDateObj);
+                mondayDate.setDate(diffToMonday);
+                mondayDate.setHours(0,0,0,0);
+                
+                const sundayDate = new Date(mondayDate);
+                sundayDate.setDate(mondayDate.getDate() + 6);
+                sundayDate.setHours(23,59,59,999);
+
                 let filteredOrders = orders.filter(o => jadwalTab === 'aktif' ? isOrderActive(o.status) || o.status.includes('Komplain') : ['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain'));
                 
+                if (jadwalTab === 'aktif') {
+                    if (jadwalViewMode === 'hari_ini') {
+                        filteredOrders = filteredOrders.filter(o => o.date === todayStr);
+                    } else if (jadwalViewMode === 'minggu_ini') {
+                        filteredOrders = filteredOrders.filter(o => {
+                            const d = new Date(o.date);
+                            return d >= mondayDate && d <= sundayDate;
+                        });
+                    } else if (jadwalViewMode === 'tertunda') {
+                        filteredOrders = filteredOrders.filter(o => o.date < todayStr);
+                    }
+                }
+
                 if (jadwalFilterTech) filteredOrders = filteredOrders.filter(o => o.technician_name === jadwalFilterTech);
                 if (jadwalFilterStatus) filteredOrders = filteredOrders.filter(o => o.status === jadwalFilterStatus);
 
@@ -798,9 +837,19 @@
                             </div>
                         </div>
 
+                        {/* View Mode Filters for Active Tab */}
+                        {jadwalTab === 'aktif' && (
+                            <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-wrap gap-2">
+                                <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif</button>
+                                <button onClick={() => setJadwalViewMode('hari_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
+                                <button onClick={() => setJadwalViewMode('minggu_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
+                                <button onClick={() => setJadwalViewMode('tertunda')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'tertunda' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Tertunda / Lanjutan</button>
+                            </div>
+                        )}
+
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm min-w-[900px]">
-                                <thead className="bg-white text-slate-500 border-b border-slate-200">
+                                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                                     <tr>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider w-32">Hari & Tanggal</th>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider">Info Klien</th>
@@ -873,6 +922,159 @@
                     </div>
                 </div>
                 );
+            };
+
+            const renderTeknisiPortal = () => {
+                const todayStr = getLocalDateString(new Date());
+                const myOrders = orders.filter(o => o.technician_name === currentUser.name && (isOrderActive(o.status) || o.status.includes('Komplain')));
+                
+                // Pisah yang hari ini (atau mendatang) dan yang tertunda
+                const upcomingOrders = myOrders.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
+                const overdueOrders = myOrders.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
+
+                // Real weekly schedule logic (Senin - Minggu yang akurat)
+                const todayDateObj = new Date();
+                const dayOfWeek = todayDateObj.getDay(); 
+                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const mondayDate = new Date(todayDateObj);
+                mondayDate.setDate(diffToMonday);
+
+                const daysOfWkIndo = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+                const weeklySchedule = Array.from({length: 7}, (_, i) => {
+                    const d = new Date(mondayDate);
+                    d.setDate(mondayDate.getDate() + i);
+                    const dStr = getLocalDateString(d);
+                    return {
+                        dateStr: dStr,
+                        dayName: daysOfWkIndo[i],
+                        displayDate: d.toLocaleDateString('id-ID', {day:'numeric', month:'short'}),
+                        dailyOrders: myOrders.filter(o => o.date === dStr)
+                    };
+                });
+
+                const renderTechOrderCard = (o) => {
+                    const finalWaPhone = getCleanPhone(o.phone);
+                    return (
+                        <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
+                            <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                                o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
+                                o.status.includes('Komplain') ? 'bg-orange-500' :
+                                o.status.includes('Selesai') ? 'bg-emerald-500' : 
+                                'bg-red-500'
+                            }`}></div>
+                            <div className="p-5 pb-4">
+                                <div className="flex justify-between items-start mb-4">
+                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
+                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
+                                        o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                        o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                        o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                        'bg-red-50 text-red-700 border-red-200'
+                                    }`}>{o.status}</span>
+                                </div>
+                                
+                                <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
+                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
+                                <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
+                                
+                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
+                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1.5 flex items-center gap-1"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Kendala Laporan:</p>
+                                    <p className="font-bold text-slate-800 text-sm leading-relaxed">{o.issue}</p>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
+                                        <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
+                                    </a>
+                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
+                                        <i className="fa-regular fa-copy text-lg"></i>
+                                    </button>
+                                    <a href={`https://maps.google.com/?q=${encodeURIComponent(o.address)}`} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
+                                        <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
+                                    </a>
+                                </div>
+                            </div>
+                            <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
+                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
+                            </div>
+                        </div>
+                    );
+                };
+
+                return (
+                    <div className="space-y-6 max-w-lg mx-auto pb-10 fade-in">
+                        <div className="bg-slate-900 p-6 rounded-2xl text-white shadow-xl relative overflow-hidden border border-slate-800">
+                            <div className="relative z-10">
+                                <h2 className="text-2xl font-black mb-1 leading-tight tracking-tight">Halo, {currentUser.name}!</h2>
+                                <p className="text-slate-400 text-xs font-medium uppercase tracking-widest mt-1">Portal Teknisi Lapangan</p>
+                            </div>
+                            <i className="fa-solid fa-helmet-safety absolute -bottom-6 -right-4 text-8xl text-slate-700 opacity-30"></i>
+                        </div>
+
+                        <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200">
+                            <button onClick={() => setJadwalTab('list')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'list' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Tugas Terkini</button>
+                            <button onClick={() => setJadwalTab('calendar')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'calendar' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Jadwal Mingguan</button>
+                        </div>
+
+                        {jadwalTab === 'list' ? (
+                            <div className="space-y-6">
+                                {/* HARI INI & MENDATANG DI ATAS */}
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <i className="fa-solid fa-calendar-day"></i> Jadwal Hari Ini & Mendatang
+                                    </h3>
+                                    <div className="space-y-4">
+                                        {upcomingOrders.map(renderTechOrderCard)}
+                                        {upcomingOrders.length === 0 && (
+                                            <div className="text-center bg-white border border-slate-200 rounded-2xl p-10 shadow-sm">
+                                                <i className="fa-regular fa-face-smile text-4xl text-slate-300 mb-3 block"></i>
+                                                <p className="text-slate-800 font-bold text-sm mb-1">Jadwal Kosong</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* TERTUNDA DI BAWAH */}
+                                {overdueOrders.length > 0 && (
+                                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl">
+                                        <h3 className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <i className="fa-solid fa-clock-rotate-left"></i> Pengerjaan Tertunda / Berlanjut
+                                        </h3>
+                                        <div className="space-y-4">
+                                            {overdueOrders.map(renderTechOrderCard)}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2">
+                                    <i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan
+                                </h3>
+                                <div className="space-y-4">
+                                    {weeklySchedule.map((dayData) => (
+                                        <div key={dayData.dateStr} className="flex gap-4 items-start border-l-2 border-slate-100 pl-4 py-1 relative">
+                                            <div className={`absolute -left-[5px] top-2 w-2 h-2 rounded-full ${dayData.dateStr === todayStr ? 'bg-red-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                                            <div className="w-16 shrink-0 mt-0.5">
+                                                <p className="text-xs font-black text-slate-600 uppercase tracking-widest">{dayData.dayName}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold">{dayData.displayDate}</p>
+                                            </div>
+                                            <div className="flex-1 space-y-2">
+                                                {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
+                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
+                                                        <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
+                                                        <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
+                                                    </div>
+                                                )) : <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest mt-1">Kosong</p>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )
             };
 
             const renderGaleri = () => {
@@ -1008,213 +1210,6 @@
                     </div>
                 </div>
             );
-
-            const renderTim = () => (
-                <div className="space-y-6 fade-in max-w-6xl mx-auto">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                        <div><h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">Tim Teknisi</h2><p className="text-slate-500 text-sm mt-1">Kelola data teknisi dan bagikan link akses login.</p></div>
-                        <button onClick={() => setShowTechModal(true)} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
-                            <i className="fa-solid fa-plus"></i> Tambah Teknisi
-                        </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                        {technicians.map(tech => {
-                            const cleanPhone = getCleanPhone(tech.phone);
-                            const magicLink = `${window.location.origin}${window.location.pathname}?tech=${tech.access_code}`;
-                            const waMessage = `Halo ${tech.name}, ini akses khusus Aplikasi Lapangan Servisika Anda.\n\nKlik link di bawah ini untuk masuk otomatis tanpa password:\n\n${magicLink}\n\nMohon simpan pesan ini.`;
-                            const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waMessage)}`;
-
-                            return (
-                                <div key={tech.id} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm relative flex flex-col hover:shadow-md transition-shadow">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 bg-slate-100 border border-slate-200 rounded-full flex items-center justify-center text-slate-700 font-black text-xl shadow-inner">{tech.name.charAt(0).toUpperCase()}</div>
-                                            <div>
-                                                <h3 className="font-black text-lg text-slate-800 leading-none mb-1.5">{tech.name}</h3>
-                                                <span className="text-[9px] text-emerald-700 font-black uppercase tracking-widest bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-block shadow-sm">Aktif</span>
-                                            </div>
-                                        </div>
-                                        <button onClick={async () => {
-                                            if(window.confirm(`Yakin hapus teknisi ${tech.name}? Akses loginnya akan hangus.`)) {
-                                                await supabase.from('technicians').delete().eq('id', tech.id);
-                                                setTechnicians(technicians.filter(t => t.id !== tech.id));
-                                            }
-                                        }} className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"><i className="fa-solid fa-trash"></i></button>
-                                    </div>
-                                    
-                                    <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl mb-5 space-y-2">
-                                        <div className="flex items-center text-sm text-slate-700 font-bold"><i className="fa-brands fa-whatsapp text-emerald-500 w-6 text-lg"></i>{tech.phone}</div>
-                                        <div className="flex items-center text-[10px] text-slate-500 font-black uppercase tracking-wider"><i className="fa-solid fa-key w-6 text-sm opacity-50"></i>KODE: {tech.access_code}</div>
-                                    </div>
-                                    
-                                    <div className="mt-auto flex flex-col gap-2">
-                                        <p className="text-[10px] text-slate-400 font-bold text-center mb-1">Bagikan Akses Login:</p>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => copyToClipboard(`Halo ${tech.name}, link portal teknisi kamu:\n${magicLink}`, 'Link WA berhasil disalin! Silakan paste manual jika klik WA error.')} className="flex-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
-                                                <i className="fa-regular fa-copy text-sm"></i> Salin Link
-                                            </button>
-                                            <a href={waUrl} target="_blank" className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
-                                                <i className="fa-brands fa-whatsapp text-lg"></i> Kirim WA
-                                            </a>
-                                        </div>
-                                    </div>
-                                </div>
-                            )
-                        })}
-                        {technicians.length === 0 && <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 shadow-sm font-medium">Belum ada data teknisi.</div>}
-                    </div>
-                </div>
-            );
-
-            const renderTeknisiPortal = () => {
-                const todayStr = getLocalDateString(new Date());
-                const myOrders = orders.filter(o => o.technician_name === currentUser.name && (isOrderActive(o.status) || o.status.includes('Komplain')));
-                
-                const todayOrders = myOrders.filter(o => o.date === todayStr);
-                const overdueOrders = myOrders.filter(o => o.date < todayStr);
-
-                const todayDateObj = new Date();
-                const dayOfWeek = todayDateObj.getDay(); 
-                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-                const mondayDate = new Date(todayDateObj);
-                mondayDate.setDate(diffToMonday);
-
-                const daysOfWkIndo = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
-                const weeklySchedule = Array.from({length: 7}, (_, i) => {
-                    const d = new Date(mondayDate);
-                    d.setDate(mondayDate.getDate() + i);
-                    const dStr = getLocalDateString(d);
-                    return {
-                        dateStr: dStr,
-                        dayName: daysOfWkIndo[i],
-                        displayDate: d.toLocaleDateString('id-ID', {day:'numeric', month:'short'}),
-                        dailyOrders: myOrders.filter(o => o.date === dStr)
-                    };
-                });
-
-                const renderTechOrderCard = (o) => {
-                    const finalWaPhone = getCleanPhone(o.phone);
-                    return (
-                        <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
-                            <div className={`absolute top-0 left-0 w-1.5 h-full ${
-                                o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
-                                o.status.includes('Komplain') ? 'bg-orange-500' :
-                                o.status.includes('Selesai') ? 'bg-emerald-500' : 
-                                'bg-red-500'
-                            }`}></div>
-                            <div className="p-5 pb-4">
-                                <div className="flex justify-between items-start mb-4">
-                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
-                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
-                                        o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                        o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                        o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                        'bg-red-50 text-red-700 border-red-200'
-                                    }`}>{o.status}</span>
-                                </div>
-                                
-                                <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
-                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
-                                <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
-                                
-                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
-                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1.5 flex items-center gap-1"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Kendala Laporan:</p>
-                                    <p className="font-bold text-slate-800 text-sm leading-relaxed">{o.issue}</p>
-                                </div>
-
-                                <div className="flex gap-2">
-                                    <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
-                                        <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
-                                    </a>
-                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
-                                        <i className="fa-regular fa-copy text-lg"></i>
-                                    </button>
-                                    <a href={`https://maps.google.com/?q=${encodeURIComponent(o.address)}`} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
-                                        <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
-                                    </a>
-                                </div>
-                            </div>
-                            <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
-                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
-                            </div>
-                        </div>
-                    );
-                };
-
-                return (
-                    <div className="space-y-6 max-w-lg mx-auto pb-10 fade-in">
-                        <div className="bg-slate-900 p-6 rounded-2xl text-white shadow-xl relative overflow-hidden border border-slate-800">
-                            <div className="relative z-10">
-                                <h2 className="text-2xl font-black mb-1 leading-tight tracking-tight">Halo, {currentUser.name}!</h2>
-                                <p className="text-slate-400 text-xs font-medium uppercase tracking-widest mt-1">Portal Teknisi Lapangan</p>
-                            </div>
-                            <i className="fa-solid fa-helmet-safety absolute -bottom-6 -right-4 text-8xl text-slate-700 opacity-30"></i>
-                        </div>
-
-                        <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200">
-                            <button onClick={() => setJadwalTab('list')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'list' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Tugas Terkini</button>
-                            <button onClick={() => setJadwalTab('calendar')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'calendar' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Jadwal Mingguan</button>
-                        </div>
-
-                        {jadwalTab === 'list' ? (
-                            <div className="space-y-6">
-                                {overdueOrders.length > 0 && (
-                                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl">
-                                        <h3 className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <i className="fa-solid fa-clock-rotate-left"></i> Pengerjaan Tertunda / Berlanjut
-                                        </h3>
-                                        <div className="space-y-4">
-                                            {overdueOrders.map(renderTechOrderCard)}
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div>
-                                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                        <i className="fa-solid fa-calendar-day"></i> Jadwal Hari Ini ({new Date().toLocaleDateString('id-ID', {day:'numeric', month:'short'})})
-                                    </h3>
-                                    <div className="space-y-4">
-                                        {todayOrders.map(renderTechOrderCard)}
-                                        {todayOrders.length === 0 && (
-                                            <div className="text-center bg-white border border-slate-200 rounded-2xl p-10 shadow-sm">
-                                                <i className="fa-regular fa-face-smile text-4xl text-slate-300 mb-3 block"></i>
-                                                <p className="text-slate-800 font-bold text-sm mb-1">Jadwal Kosong</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2">
-                                    <i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan
-                                </h3>
-                                <div className="space-y-4">
-                                    {weeklySchedule.map((dayData) => (
-                                        <div key={dayData.dateStr} className="flex gap-4 items-start border-l-2 border-slate-100 pl-4 py-1 relative">
-                                            <div className={`absolute -left-[5px] top-2 w-2 h-2 rounded-full ${dayData.dateStr === todayStr ? 'bg-red-500 animate-pulse' : 'bg-slate-300'}`}></div>
-                                            <div className="w-16 shrink-0 mt-0.5">
-                                                <p className="text-xs font-black text-slate-600 uppercase tracking-widest">{dayData.dayName}</p>
-                                                <p className="text-[10px] text-slate-400 font-bold">{dayData.displayDate}</p>
-                                            </div>
-                                            <div className="flex-1 space-y-2">
-                                                {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
-                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
-                                                        <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
-                                                        <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
-                                                    </div>
-                                                )) : <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest mt-1">Kosong</p>}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )
-            };
 
             const renderModals = () => (
                 <>
