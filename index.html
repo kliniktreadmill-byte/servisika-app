@@ -27,16 +27,21 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
+        // INI ADALAH KUNCI DATABASE SUPABASE KAMU YANG ASLI
         const SUPABASE_URL = 'https://fpvnlwcjnmfiyrlbhgvi.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwdm5sd2Nqbm1maXlybGJoZ3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1ODA0ODksImV4cCI6MjEwMDE1NjQ4OX0.Y5eBJEjxfOEv0ES-LUYfY6aP7zaRIdp5L2XAzvLZLks';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const App = () => {
-            const [role, setRole] = useState('admin');
+            // State Sesi & Login
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [role, setRole] = useState(null); // 'admin' atau 'teknisi'
+            const [currentUser, setCurrentUser] = useState(null); // Data teknisi yg login
+            const [loginError, setLoginError] = useState('');
+            
             const [activeTab, setActiveTab] = useState('dashboard');
             const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
             const [isLoading, setIsLoading] = useState(true);
-            const [techAccessCode, setTechAccessCode] = useState(''); // Simulasi login teknisi
 
             // State Data Database
             const [transactions, setTransactions] = useState([]);
@@ -44,10 +49,8 @@
             const [orders, setOrders] = useState([]);
 
             // State UI & Filter
-            const [dashView, setDashView] = useState('mingguan'); // Dashboard jadwal view
-            const [jadwalView, setJadwalView] = useState('list'); // list atau calendar
-            
-            // State Filter Arus Kas
+            const [dashView, setDashView] = useState('mingguan');
+            const [jadwalView, setJadwalView] = useState('list');
             const [financeFilter, setFinanceFilter] = useState({ search: '', category: 'Semua', startDate: '', endDate: '' });
 
             // State Modals
@@ -57,29 +60,76 @@
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
             const [showTechModal, setShowTechModal] = useState(false);
 
-            // Fetch Data saat aplikasi dimuat
             useEffect(() => {
-                fetchAllData();
+                const initApp = async () => {
+                    setIsLoading(true);
+                    try {
+                        // Tarik semua data dari Supabase
+                        const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+                        if (trxData) setTransactions(trxData);
+
+                        const { data: techData } = await supabase.from('technicians').select('*').order('created_at', { ascending: false });
+                        if (techData) setTechnicians(techData);
+
+                        const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
+                        if (ordData) setOrders(ordData);
+
+                        // Cek MAGIC LINK (URL Parameters)
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const techCode = urlParams.get('tech');
+                        
+                        if (techCode && techData) {
+                            const foundTech = techData.find(t => t.access_code === techCode);
+                            if (foundTech) {
+                                setIsLoggedIn(true);
+                                setRole('teknisi');
+                                setCurrentUser(foundTech);
+                                // Bersihkan URL agar rapi kembali
+                                window.history.replaceState({}, document.title, window.location.pathname);
+                            }
+                        }
+                    } catch (error) {
+                        console.error("Gagal load data:", error);
+                    } finally {
+                        setIsLoading(false);
+                    }
+                };
+                initApp();
             }, []);
 
-            const fetchAllData = async () => {
-                setIsLoading(true);
-                try {
-                    // Ambil Transaksi
-                    const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false });
-                    if (trxData) setTransactions(trxData);
+            const handleAdminLogin = (e) => {
+                e.preventDefault();
+                const pin = e.target.pin.value;
+                if(pin === 'admin123') {
+                    setIsLoggedIn(true);
+                    setRole('admin');
+                    setCurrentUser({ name: 'Admin Utama' });
+                    setLoginError('');
+                } else {
+                    setLoginError('PIN Admin salah!');
+                }
+            };
 
-                    // Ambil Teknisi
-                    const { data: techData } = await supabase.from('technicians').select('*').order('created_at', { ascending: false });
-                    if (techData) setTechnicians(techData);
+            const handleTechLogin = (e) => {
+                e.preventDefault();
+                const code = e.target.code.value.trim();
+                const foundTech = technicians.find(t => t.access_code === code);
+                if(foundTech) {
+                    setIsLoggedIn(true);
+                    setRole('teknisi');
+                    setCurrentUser(foundTech);
+                    setLoginError('');
+                } else {
+                    setLoginError('Kode akses Teknisi tidak ditemukan!');
+                }
+            };
 
-                    // Ambil Order + Parts nya sekalian
-                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
-                    if (ordData) setOrders(ordData);
-                } catch (error) {
-                    console.error("Gagal load data:", error);
-                } finally {
-                    setIsLoading(false);
+            const handleLogout = () => {
+                if(window.confirm('Keluar dari portal?')) {
+                    setIsLoggedIn(false);
+                    setRole(null);
+                    setCurrentUser(null);
+                    setActiveTab('dashboard');
                 }
             };
 
@@ -134,13 +184,12 @@
             };
 
             const handleDeleteTechnician = async (id) => {
-                if(window.confirm('Hapus akses teknisi ini?')) {
+                if(window.confirm('Hapus teknisi ini secara permanen?')) {
                     await supabase.from('technicians').delete().eq('id', id);
                     setTechnicians(technicians.filter(t => t.id !== id));
                 }
             };
 
-            // Order Management (Buat baru)
             const handleCreateOrder = async (e) => {
                 e.preventDefault();
                 const formData = new FormData(e.target);
@@ -153,37 +202,77 @@
                 };
                 const { data, error } = await supabase.from('orders').insert([newOrder]).select();
                 if (!error && data) {
-                    // Beri default part "Jasa Layanan Kunjungan" 250rb
                     const defaultPart = { order_id: data[0].id, name: 'Jasa Kunjungan & Pengecekan', price: 250000, warranty_months: 0 };
                     await supabase.from('order_parts').insert([defaultPart]);
-                    fetchAllData(); // Refresh to get relations
+                    // Refresh orders
+                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
+                    if(ordData) setOrders(ordData);
                     setShowOrderModal(false);
                 }
             };
 
-            // Tombol "Set Lunas" (Otomatis masuk kas)
             const handleSetLunas = async (order) => {
                 if(window.confirm(`Set status order ${order.customer} menjadi LUNAS?\n\nDana akan otomatis masuk ke Kas Berjalan.`)) {
-                    // Hitung total dari parts
                     const totalAmount = (order.order_parts || []).reduce((sum, p) => sum + Number(p.price), 0);
                     
-                    // 1. Update Order Status
                     await supabase.from('orders').update({ status: 'Lunas' }).eq('id', order.id);
                     
-                    // 2. Insert ke Kas Berjalan
                     if(totalAmount > 0) {
                         const newTrx = {
                             date: new Date().toISOString().split('T')[0],
                             type: 'in', category: 'Kas Berjalan',
-                            amount: totalAmount, description: `Pelunasan Order: ${order.customer} (${order.order_id_text || 'Tanpa ID'})`
+                            amount: totalAmount, description: `Pelunasan Order: ${order.customer} (${order.order_id_text})`
                         };
-                        await supabase.from('transactions').insert([newTrx]);
+                        const { data } = await supabase.from('transactions').insert([newTrx]).select();
+                        if(data) setTransactions([data[0], ...transactions]);
                     }
                     
+                    // Refresh orders
+                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
+                    if(ordData) setOrders(ordData);
                     setShowOrderModal(false);
-                    fetchAllData(); // Refresh Data
                 }
             };
+
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+                        <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-100">
+                            <div className="text-center mb-8">
+                                <div className="bg-red-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <i className="fa-solid fa-wrench text-2xl text-red-600"></i>
+                                </div>
+                                <h1 className="text-2xl font-black text-slate-800">SERVISIKA</h1>
+                                <p className="text-slate-500 text-sm">Portal Manajemen & Teknisi</p>
+                            </div>
+                            
+                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-bold text-center mb-6 border border-red-100"><i className="fa-solid fa-circle-exclamation mr-1"></i> {loginError}</div>}
+                            
+                            <div className="space-y-6">
+                                <form onSubmit={handleAdminLogin} className="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Akses Admin</h3>
+                                    <div className="flex gap-2">
+                                        <input type="password" name="pin" placeholder="PIN Admin (admin123)" required className="flex-1 p-2.5 rounded-lg border border-slate-300 outline-none focus:border-red-500 text-sm font-bold text-center" />
+                                        <button type="submit" className="bg-slate-800 hover:bg-slate-900 text-white px-4 rounded-lg font-bold text-sm transition-colors">Masuk</button>
+                                    </div>
+                                </form>
+
+                                <div className="relative flex items-center py-2">
+                                    <div className="flex-grow border-t border-slate-200"></div>
+                                    <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-medium">Atau</span>
+                                    <div className="flex-grow border-t border-slate-200"></div>
+                                </div>
+
+                                <form onSubmit={handleTechLogin} className="bg-red-50 p-5 rounded-xl border border-red-100">
+                                    <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider mb-3">Akses Teknisi Lapangan</h3>
+                                    <input type="text" name="code" placeholder="Kode Akses (cth: tech_abc)" required className="w-full p-2.5 rounded-lg border border-red-200 outline-none focus:border-red-500 text-sm font-bold text-center mb-3 bg-white" />
+                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-bold text-sm transition-colors shadow-sm">Masuk Portal Teknisi</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
 
             const Navigation = () => (
                 <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-red-700 text-white transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 shadow-2xl flex flex-col`}>
@@ -226,8 +315,15 @@
                     </div>
                     
                     <div className="p-5 border-t border-red-600/50 bg-red-800/30 mt-auto">
-                        <button onClick={() => { setRole(role === 'admin' ? 'teknisi' : 'admin'); setActiveTab('dashboard'); }} className="w-full text-[11px] bg-red-900/50 hover:bg-red-900 text-white py-3 rounded-xl transition-colors font-bold border border-red-500/30">
-                            <i className="fa-solid fa-repeat mr-1"></i> Simulasi: Ganti ke {role === 'admin' ? 'Teknisi' : 'Admin'}
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center font-bold">{currentUser.name.charAt(0).toUpperCase()}</div>
+                            <div className="overflow-hidden">
+                                <p className="font-bold text-sm truncate leading-tight">{currentUser.name}</p>
+                                <p className="text-[10px] text-red-200 capitalize">{role}</p>
+                            </div>
+                        </div>
+                        <button onClick={handleLogout} className="w-full text-xs bg-red-900/50 hover:bg-red-900 text-white py-2.5 rounded-xl transition-colors font-bold border border-red-500/30">
+                            <i className="fa-solid fa-arrow-right-from-bracket mr-1"></i> Keluar
                         </button>
                     </div>
                 </div>
@@ -261,34 +357,6 @@
                                 <p className="text-xs text-slate-500 font-bold uppercase truncate">Kas Berjalan</p>
                                 <h3 className="text-lg font-black text-slate-800 truncate">{formatRupiah(kasBerjalan)}</h3>
                             </div>
-                        </div>
-                    </div>
-
-                    <div className="glass-panel rounded-2xl p-5">
-                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-3">
-                            <h3 className="font-bold text-slate-800">Ringkasan Pengerjaan</h3>
-                            <div className="flex items-center gap-3 w-full sm:w-auto">
-                                <select value={dashView} onChange={(e)=>setDashView(e.target.value)} className="bg-slate-100 border-none text-xs font-bold p-2 rounded-lg outline-none cursor-pointer">
-                                    <option value="hari_ini">Hari Ini</option>
-                                    <option value="mingguan">Minggu Ini</option>
-                                </select>
-                                <button onClick={() => setActiveTab('jadwal')} className="text-xs text-red-600 font-bold hover:underline">Lihat Semua &rarr;</button>
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            {orders.slice(0, 3).map(o => (
-                                <div key={o.id} className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-xl transition-colors border border-slate-100">
-                                    <div className="flex gap-3 items-center">
-                                        <div className={`w-2 h-10 rounded-full ${o.status === 'Proses' ? 'bg-yellow-400' : o.status === 'Lunas' ? 'bg-green-500' : 'bg-blue-400'}`}></div>
-                                        <div>
-                                            <p className="font-bold text-sm text-slate-800">{o.customer}</p>
-                                            <p className="text-xs text-slate-500">{o.unit} • <span className="font-medium text-red-500">{o.technician_name}</span></p>
-                                        </div>
-                                    </div>
-                                    <span className="text-[10px] bg-slate-100 px-2 py-1 rounded font-bold">{o.date}</span>
-                                </div>
-                            ))}
-                            {orders.length === 0 && <p className="text-center text-slate-400 text-sm py-5">Belum ada data pengerjaan.</p>}
                         </div>
                     </div>
                 </div>
@@ -334,7 +402,7 @@
                                                     }`}>{o.status}</span>
                                                 </td>
                                                 <td className="p-4 text-center">
-                                                    <button onClick={() => { setSelectedOrder(o); setShowOrderModal(true); }} className="text-red-600 bg-red-50 hover:bg-red-600 hover:text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors">Detail</button>
+                                                    <button onClick={() => { setSelectedOrder(o); setShowOrderModal(true); }} className="text-red-600 bg-red-50 hover:bg-red-600 hover:text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors shadow-sm">Detail & Edit</button>
                                                 </td>
                                             </tr>
                                         ))}
@@ -344,7 +412,7 @@
                         ) : (
                             <div className="p-10 text-center text-slate-400">
                                 <i className="fa-regular fa-calendar-xmark text-4xl mb-3"></i>
-                                <p className="font-medium">Tampilan Kalender interaktif akan tersedia setelah integrasi kalender penuh di versi berikutnya.</p>
+                                <p className="font-medium">Tampilan Kalender (Tahap Eksekusi Lanjutan)</p>
                             </div>
                         )}
                     </div>
@@ -365,64 +433,65 @@
                             <p className="text-blue-200 text-xs font-bold uppercase tracking-wider mb-1">Kas Berjalan (Operasional)</p>
                             <h3 className="text-3xl sm:text-4xl font-black mb-4">{formatRupiah(kasBerjalan)}</h3>
                             <div className="inline-flex items-center gap-2 text-xs bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm font-medium hover:bg-white/30">
-                                Buka Detail Transaksi <i className="fa-solid fa-arrow-right"></i>
+                                Buka Detail & Hapus Mutasi <i className="fa-solid fa-arrow-right"></i>
                             </div>
                         </div>
                         <div onClick={() => setShowCashDetailModal({ isOpen: true, type: 'Kas Tetap' })} className="bg-gradient-to-br from-red-600 to-red-800 p-6 rounded-2xl text-white shadow-lg cursor-pointer hover:scale-[1.02] transition-transform">
                             <p className="text-red-200 text-xs font-bold uppercase tracking-wider mb-1">Kas Tetap (Tabungan)</p>
                             <h3 className="text-3xl sm:text-4xl font-black mb-4">{formatRupiah(kasTetap)}</h3>
                             <div className="inline-flex items-center gap-2 text-xs bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-sm font-medium hover:bg-white/30">
-                                Buka Detail Transaksi <i className="fa-solid fa-arrow-right"></i>
+                                Buka Detail & Hapus Mutasi <i className="fa-solid fa-arrow-right"></i>
                             </div>
                         </div>
                     </div>
 
-                    {/* Filter & Daftar Mutasi Keseluruhan */}
                     <div className="glass-panel rounded-2xl overflow-hidden shadow-sm">
                         <div className="p-4 sm:p-5 border-b border-slate-200 bg-slate-50/50 flex flex-col gap-4">
-                            <h3 className="font-black text-slate-800 text-lg">Mutasi Keseluruhan</h3>
+                            <div>
+                                <h3 className="font-black text-slate-800 text-lg">Mutasi Keseluruhan</h3>
+                                <p className="text-xs text-slate-500">Filter berdasarkan kata kunci, rentang tanggal, atau laci kas.</p>
+                            </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                                 <div className="flex bg-white border border-slate-200 rounded-xl px-3 items-center focus-within:border-blue-500 overflow-hidden shadow-sm">
                                     <i className="fa-solid fa-search text-slate-400 text-sm"></i>
-                                    <input type="text" placeholder="Cari ket. (cth: pembukuan)" value={financeFilter.search} onChange={e => setFinanceFilter({...financeFilter, search: e.target.value})} className="w-full p-2 outline-none text-sm" />
+                                    <input type="text" placeholder="Cari ket. (cth: pembukuan)" value={financeFilter.search} onChange={e => setFinanceFilter({...financeFilter, search: e.target.value})} className="w-full p-2 outline-none text-sm font-medium" />
                                 </div>
-                                <select value={financeFilter.category} onChange={e => setFinanceFilter({...financeFilter, category: e.target.value})} className="bg-white border border-slate-200 p-2.5 rounded-xl text-sm outline-none shadow-sm font-medium">
+                                <select value={financeFilter.category} onChange={e => setFinanceFilter({...financeFilter, category: e.target.value})} className="bg-white border border-slate-200 p-2.5 rounded-xl text-sm outline-none shadow-sm font-bold">
                                     <option value="Semua">Semua Kategori Kas</option>
                                     <option value="Kas Berjalan">Hanya Kas Berjalan</option>
                                     <option value="Kas Tetap">Hanya Kas Tetap</option>
                                 </select>
-                                <div className="flex flex-col">
-                                    <label className="text-[10px] font-bold text-slate-400 ml-1">Dari Tanggal</label>
-                                    <input type="date" value={financeFilter.startDate} onChange={e => setFinanceFilter({...financeFilter, startDate: e.target.value})} className="bg-white border border-slate-200 p-2 rounded-xl text-sm outline-none shadow-sm" />
+                                <div className="flex flex-col bg-white border border-slate-200 rounded-xl px-2 shadow-sm">
+                                    <label className="text-[9px] font-bold text-slate-400 ml-1 pt-1 uppercase">Dari Tgl</label>
+                                    <input type="date" value={financeFilter.startDate} onChange={e => setFinanceFilter({...financeFilter, startDate: e.target.value})} className="w-full p-1 text-sm outline-none bg-transparent font-medium" />
                                 </div>
-                                <div className="flex flex-col">
-                                    <label className="text-[10px] font-bold text-slate-400 ml-1">Sampai Tanggal</label>
-                                    <input type="date" value={financeFilter.endDate} onChange={e => setFinanceFilter({...financeFilter, endDate: e.target.value})} className="bg-white border border-slate-200 p-2 rounded-xl text-sm outline-none shadow-sm" />
+                                <div className="flex flex-col bg-white border border-slate-200 rounded-xl px-2 shadow-sm">
+                                    <label className="text-[9px] font-bold text-slate-400 ml-1 pt-1 uppercase">Sampai Tgl</label>
+                                    <input type="date" value={financeFilter.endDate} onChange={e => setFinanceFilter({...financeFilter, endDate: e.target.value})} className="w-full p-1 text-sm outline-none bg-transparent font-medium" />
                                 </div>
                             </div>
                         </div>
                         <div className="divide-y divide-slate-100 bg-white">
                             {filteredTransactions.map(trx => (
-                                <div key={trx.id} className="p-4 flex flex-col sm:flex-row justify-between sm:items-center gap-3 hover:bg-slate-50 transition-colors">
+                                <div key={trx.id} className="p-4 sm:p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 hover:bg-slate-50 transition-colors">
                                     <div>
-                                        <div className="flex items-center gap-2 mb-1">
+                                        <div className="flex items-center gap-2 mb-1.5">
                                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase border ${trx.category === 'Kas Berjalan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-red-50 text-red-700 border-red-200'}`}>{trx.category}</span>
                                             <span className="text-xs text-slate-400 font-medium"><i className="fa-regular fa-calendar mr-1"></i> {trx.date}</span>
                                         </div>
-                                        <p className="font-bold text-slate-800 text-sm">{trx.description}</p>
+                                        <p className="font-bold text-slate-800 text-sm sm:text-base">{trx.description}</p>
                                     </div>
-                                    <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+                                    <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto mt-2 sm:mt-0">
                                         <div className={`font-black text-lg ${trx.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
                                             {trx.type === 'in' ? '+' : '-'}{formatRupiah(trx.amount)}
                                         </div>
-                                        <div className="flex gap-1">
-                                            <button onClick={() => alert('Fitur Edit Transaksi langsung akan dibuat. Sementara gunakan Hapus lalu Input ulang.')} className="p-2 text-slate-400 hover:text-blue-600 bg-slate-50 hover:bg-blue-50 rounded-lg"><i className="fa-solid fa-pen-to-square"></i></button>
-                                            <button onClick={() => handleDeleteTransaction(trx.id)} className="p-2 text-slate-400 hover:text-red-600 bg-slate-50 hover:bg-red-50 rounded-lg"><i className="fa-solid fa-trash"></i></button>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleDeleteTransaction(trx.id)} className="px-3 py-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg text-xs font-bold transition-all"><i className="fa-solid fa-trash mr-1"></i> Hapus</button>
                                         </div>
                                     </div>
                                 </div>
                             ))}
-                            {filteredTransactions.length === 0 && <div className="p-10 text-center text-slate-400 text-sm">Tidak ada mutasi yang sesuai filter.</div>}
+                            {filteredTransactions.length === 0 && <div className="p-12 text-center text-slate-400 text-sm font-medium"><i className="fa-solid fa-file-invoice-dollar text-4xl mb-3 block text-slate-300"></i>Tidak ada mutasi yang sesuai filter.</div>}
                         </div>
                     </div>
                 </div>
@@ -432,93 +501,125 @@
                 <div className="space-y-6 animate-fade-in">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div><h2 className="text-2xl sm:text-3xl font-black text-slate-800">Tim Teknisi</h2><p className="text-slate-500 text-sm mt-1">Kelola data dan link akses khusus teknisi.</p></div>
-                        <button onClick={() => setShowTechModal(true)} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm">
-                            <i className="fa-solid fa-plus mr-2"></i> Tambah Teknisi
+                        <button onClick={() => setShowTechModal(true)} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-sm flex justify-center items-center gap-2">
+                            <i className="fa-solid fa-plus"></i> Tambah Teknisi
                         </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {technicians.map(tech => {
-                            // Bikin link unik. Karena URL ini nanti diakses publik, cukup kasih instruksi WA.
+                            // MESIN PEMBERSIH NOMOR HP SUPER (Menghapus spasi, strip, huruf)
+                            let cleanPhone = (tech.phone || '').replace(/\D/g, ''); 
+                            if (cleanPhone.startsWith('0')) cleanPhone = '62' + cleanPhone.substring(1);
+                            if (!cleanPhone.startsWith('62')) cleanPhone = '62' + cleanPhone;
+
+                            // Magic Link URL
                             const appUrl = window.location.origin;
-                            const waMessage = `Halo ${tech.name}, ini link khusus Aplikasi Teknisi Servisika kamu. Jangan bagikan ke orang lain ya!\n\nKode Login Kamu: *${tech.access_code}*\nBuka Web: ${appUrl}`;
-                            const waUrl = `https://wa.me/${tech.phone.replace(/^0/, '62')}?text=${encodeURIComponent(waMessage)}`;
+                            const magicLink = `${appUrl}/?tech=${tech.access_code}`;
+                            
+                            const waMessage = `Halo ${tech.name}, ini akses khusus Aplikasi Teknisi Servisika.\n\nBuka link ini untuk langsung masuk:\n${magicLink}\n\nAtau jika diminta, masukkan Kode Akses manual: *${tech.access_code}*`;
+                            const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waMessage)}`;
+
+                            const copyToClipboard = () => {
+                                navigator.clipboard.writeText(`Link Teknisi ${tech.name}:\n${magicLink}\nKode Akses: ${tech.access_code}`);
+                                alert('Teks & Link MAGIC berhasil disalin!');
+                            };
 
                             return (
-                                <div key={tech.id} className="glass-panel p-5 rounded-2xl shadow-sm relative group">
+                                <div key={tech.id} className="glass-panel p-5 rounded-2xl shadow-sm relative group flex flex-col">
                                     <div className="flex justify-between items-start mb-4">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-black text-xl">{tech.name.charAt(0)}</div>
+                                            <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-black text-xl">{tech.name.charAt(0).toUpperCase()}</div>
                                             <div>
                                                 <h3 className="font-black text-lg text-slate-800 leading-none">{tech.name}</h3>
                                                 <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider bg-emerald-50 px-2 py-0.5 rounded mt-1 inline-block">Aktif</span>
                                             </div>
                                         </div>
-                                        <button onClick={() => handleDeleteTechnician(tech.id)} className="text-slate-300 hover:text-red-600 p-2 bg-slate-50 rounded-lg transition-colors"><i className="fa-solid fa-trash"></i></button>
+                                        <button onClick={() => handleDeleteTechnician(tech.id)} className="text-slate-300 hover:text-red-600 p-2 bg-slate-50 hover:bg-red-50 rounded-lg transition-colors"><i className="fa-solid fa-trash"></i></button>
                                     </div>
-                                    <div className="text-sm text-slate-600 bg-slate-50 p-2.5 rounded-xl mb-4 font-medium"><i className="fa-brands fa-whatsapp text-emerald-500 mr-2"></i>{tech.phone}</div>
-                                    <div className="pt-4 border-t border-slate-100">
-                                        <p className="text-[10px] font-bold text-slate-400 mb-2 uppercase text-center">Akses Login: {tech.access_code}</p>
-                                        <button onClick={() => window.open(waUrl, '_blank')} className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 transition-colors">
-                                            <i className="fa-brands fa-whatsapp text-lg"></i> Kirim Akses via WA
-                                        </button>
+                                    <div className="text-sm text-slate-600 bg-slate-50 p-2.5 rounded-xl mb-4 font-medium flex items-center"><i className="fa-brands fa-whatsapp text-emerald-500 mr-2 text-lg"></i>{tech.phone}</div>
+                                    
+                                    <div className="pt-4 border-t border-slate-100 mt-auto">
+                                        <p className="text-[10px] font-bold text-slate-400 mb-2 uppercase text-center tracking-wider">Akses Login: <span className="text-slate-800">{tech.access_code}</span></p>
+                                        <div className="flex flex-col gap-2">
+                                            <button onClick={() => window.open(waUrl, '_blank')} className="w-full bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 transition-colors">
+                                                <i className="fa-brands fa-whatsapp text-base"></i> Kirim Magic Link via WA
+                                            </button>
+                                            <button onClick={copyToClipboard} className="w-full bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-1.5 transition-colors">
+                                                <i className="fa-regular fa-copy text-base"></i> Salin Link Manual
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             )
                         })}
-                        {technicians.length === 0 && <div className="col-span-full p-8 text-center text-slate-400 bg-white border border-slate-200 rounded-2xl border-dashed">Belum ada data teknisi.</div>}
                     </div>
                 </div>
             );
 
             const renderTeknisiPortal = () => {
-                // Filter order khusus untuk teknisi yang sedang disimulasikan (Hardcode ke Bima/Agus atau ambil dari state simulasi). 
-                // Karena ini prototype simulasi tanpa login sungguhan, kita tampilkan semua order berstatus proses/pending.
-                const myOrders = orders.filter(o => o.status === 'Proses' || o.status === 'Pending');
+                // FILTER HANYA TUGAS MILIK TEKNISI YANG SEDANG LOGIN
+                const myOrders = orders.filter(o => o.technician_name === currentUser.name && (o.status === 'Proses' || o.status === 'Pending'));
 
                 return (
                     <div className="space-y-6 max-w-lg mx-auto pb-10 animate-fade-in">
                         <div className="bg-red-700 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
-                            <div className="relative z-10">
-                                <h2 className="text-2xl font-black mb-1">Halo, Teknisi!</h2>
-                                <p className="text-red-200 text-sm">Berikut daftar penugasanmu minggu ini.</p>
+                            <div className="relative z-10 flex justify-between items-start">
+                                <div>
+                                    <h2 className="text-2xl font-black mb-1">Halo, {currentUser.name}!</h2>
+                                    <p className="text-red-200 text-sm font-medium">Ini jadwal pengerjaanmu.</p>
+                                </div>
+                                <div className="bg-white/20 px-3 py-1.5 rounded-lg text-xs font-bold backdrop-blur-sm">
+                                    <i className="fa-solid fa-calendar-check mr-1"></i> {myOrders.length} Tugas
+                                </div>
                             </div>
                             <i className="fa-solid fa-helmet-safety absolute -bottom-4 -right-4 text-8xl text-red-600 opacity-50"></i>
                         </div>
 
+                        <div className="flex bg-slate-200/50 p-1 rounded-xl">
+                            <button className="flex-1 bg-white shadow-sm text-slate-800 py-2 text-sm font-bold rounded-lg">Tugas Saat Ini</button>
+                            <button onClick={()=>alert('Kalender mingguan teknisi akan aktif di tahap eksekusi kalender.')} className="flex-1 text-slate-500 hover:text-slate-700 py-2 text-sm font-bold rounded-lg transition-colors">Jadwal Mingguan</button>
+                        </div>
+
                         <div className="space-y-4">
-                            {myOrders.map(o => (
+                            {myOrders.map(o => {
+                                let finalWaPhone = (o.phone || '').replace(/\D/g, '');
+                                if (finalWaPhone.startsWith('0')) finalWaPhone = '62' + finalWaPhone.substring(1);
+                                if (!finalWaPhone.startsWith('62')) finalWaPhone = '62' + finalWaPhone;
+
+                                return (
                                 <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
                                     <div className={`absolute top-0 left-0 w-1.5 h-full ${o.status === 'Proses' ? 'bg-yellow-400' : 'bg-red-400'}`}></div>
                                     <div className="p-5 pb-4">
                                         <div className="flex justify-between items-start mb-3">
-                                            <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-1 rounded uppercase">{o.date}</span>
+                                            <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-2 py-1 rounded uppercase tracking-wider">{o.date}</span>
                                             <span className="text-xs font-bold text-slate-400">{o.order_id_text}</span>
                                         </div>
                                         <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
                                         <p className="text-sm text-red-600 font-bold mb-4">{o.unit}</p>
                                         
                                         <div className="bg-red-50 border border-red-100 p-3 rounded-xl mb-4">
-                                            <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider mb-0.5">Kendala / Laporan:</p>
-                                            <p className="font-bold text-slate-800 text-sm">{o.issue}</p>
+                                            <p className="text-[10px] text-red-500 font-bold uppercase tracking-wider mb-0.5">Kendala / Laporan:</p>
+                                            <p className="font-bold text-slate-800 text-sm leading-snug">{o.issue}</p>
                                         </div>
 
                                         <div className="flex gap-2">
-                                            <button onClick={() => window.open(`https://wa.me/${o.phone.replace(/^0/, '62')}`, '_blank')} className="flex-1 bg-emerald-50 text-emerald-700 py-2.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 border border-emerald-200">
+                                            <button onClick={() => window.open(`https://wa.me/${finalWaPhone}`, '_blank')} className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-2.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1.5 border border-emerald-200 transition-colors">
                                                 <i className="fa-brands fa-whatsapp text-lg"></i> WA Klien
                                             </button>
-                                            <button onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(o.address)}`, '_blank')} className="flex-1 bg-blue-50 text-blue-700 py-2.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 border border-blue-200">
+                                            <button onClick={() => window.open(`https://maps.google.com/?q=${encodeURIComponent(o.address)}`, '_blank')} className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-2.5 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1.5 border border-blue-200 transition-colors">
                                                 <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
                                             </button>
                                         </div>
                                     </div>
-                                    <div className="border-t border-slate-100 p-4 bg-slate-50 flex justify-between items-center">
-                                        <p className="text-xs font-medium text-slate-600 w-2/3 truncate pr-2">{o.address}</p>
-                                        <button onClick={() => { setSelectedOrder(o); setShowOrderModal(true); }} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm shrink-0">Update Progres</button>
+                                    <div className="border-t border-slate-100 p-4 bg-slate-50 flex justify-between items-center gap-4">
+                                        <p className="text-xs font-medium text-slate-500 flex-1 leading-snug"><i className="fa-solid fa-location-dot mr-1"></i> {o.address}</p>
+                                        <button onClick={() => { setSelectedOrder(o); setShowOrderModal(true); }} className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs font-bold shadow-sm shrink-0 transition-colors">Update Progres</button>
                                     </div>
                                 </div>
-                            ))}
-                            {myOrders.length === 0 && <p className="text-center text-slate-400 py-10 font-medium">Bagus! Tidak ada antrian pekerjaan saat ini.</p>}
+                                )
+                            })}
+                            {myOrders.length === 0 && <div className="text-center bg-white border border-slate-200 border-dashed rounded-2xl p-10"><i className="fa-regular fa-face-smile text-4xl text-slate-300 mb-3"></i><p className="text-slate-500 font-medium text-sm">Bagus! Tidak ada antrean saat ini.</p></div>}
                         </div>
                     </div>
                 )
@@ -531,95 +632,90 @@
                         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm overflow-y-auto">
                             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl my-8 flex flex-col max-h-[90vh]">
                                 <div className="sticky top-0 bg-white border-b border-slate-100 p-5 flex justify-between items-center z-10 rounded-t-2xl">
-                                    <h3 className="font-black text-xl text-slate-800">{role === 'admin' ? 'Detail & Kelola Order' : 'Laporan Pekerjaan'}</h3>
+                                    <div>
+                                        <h3 className="font-black text-xl text-slate-800 leading-tight">{role === 'admin' ? 'Kelola Order & Invoice' : 'Update Laporan Teknisi'}</h3>
+                                        <p className="text-xs text-slate-500 font-medium mt-0.5">{selectedOrder.customer} - {selectedOrder.order_id_text}</p>
+                                    </div>
                                     <button onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-slate-600 bg-slate-100 p-2 rounded-full"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
                                 <div className="p-5 overflow-y-auto space-y-6">
+                                    
                                     {/* Edit Status */}
                                     <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Status Pengerjaan</label>
-                                        <select defaultValue={selectedOrder.status} className="w-full font-bold text-slate-800 border-2 border-slate-200 p-3 rounded-xl outline-none focus:border-red-500 bg-slate-50">
-                                            <option value="Proses">Sedang Dikerjakan (Proses)</option>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block ml-1">Status Progres Saat Ini</label>
+                                        <select defaultValue={selectedOrder.status} className="w-full font-bold text-slate-800 border-2 border-slate-200 p-3 rounded-xl outline-none focus:border-red-500 bg-slate-50 shadow-sm cursor-pointer">
+                                            <option value="Proses">Sedang Dikerjakan (Berlanjut)</option>
                                             <option value="Pending">Tertunda / Tunggu Sparepart</option>
-                                            <option value="Selesai">Pengerjaan Selesai (Belum Lunas)</option>
-                                            {role === 'admin' && <option value="Lunas">Selesai & Lunas</option>}
+                                            <option value="Selesai">Pengerjaan Selesai</option>
+                                            {role === 'admin' && <option value="Lunas">Selesai & Lunas (Otomatis Masuk Kas)</option>}
                                         </select>
                                     </div>
 
-                                    {/* Daftar Rincian Biaya/Sparepart */}
+                                    {/* Daftar Rincian Biaya/Sparepart Dinamis */}
                                     <div>
                                         <div className="flex justify-between items-center mb-2">
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rincian Jasa & Sparepart</label>
-                                            <button className="text-xs font-bold text-red-600 bg-red-50 px-3 py-1.5 rounded-lg border border-red-100"><i className="fa-solid fa-plus mr-1"></i> Tambah Baris</button>
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block ml-1">Rincian Jasa & Estimasi Sparepart</label>
                                         </div>
-                                        <div className="border border-slate-200 rounded-xl overflow-hidden">
+                                        <div className="border border-slate-200 rounded-xl overflow-hidden shadow-sm">
                                             {(selectedOrder.order_parts || []).map((part, idx) => (
                                                 <div key={idx} className="p-3 bg-slate-50 border-b border-slate-100 last:border-b-0 flex flex-col sm:flex-row gap-2">
-                                                    <input type="text" defaultValue={part.name} placeholder="Nama Jasa/Sparepart" className="flex-1 p-2 border border-slate-200 rounded-lg text-sm font-bold w-full" />
-                                                    <input type="number" defaultValue={part.price} placeholder="Harga (Rp)" className="w-full sm:w-32 p-2 border border-slate-200 rounded-lg text-sm font-bold" />
+                                                    <input type="text" defaultValue={part.name} placeholder="Nama Jasa / Sparepart" className="flex-1 p-2 border border-slate-200 rounded-lg text-sm font-bold w-full outline-none focus:border-red-400" />
+                                                    <input type="number" defaultValue={part.price} placeholder="Harga (Rp)" className="w-full sm:w-32 p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-red-400" />
                                                     {role === 'admin' && (
-                                                        <input type="number" defaultValue={part.warranty_months} placeholder="Garansi (Bln)" title="Garansi (Bulan)" className="w-full sm:w-24 p-2 border border-slate-200 rounded-lg text-sm text-center" />
+                                                        <div className="w-full sm:w-28 relative">
+                                                            <input type="number" defaultValue={part.warranty_months} placeholder="Garansi" className="w-full p-2 pr-8 border border-slate-200 rounded-lg text-sm text-center font-bold outline-none focus:border-red-400" />
+                                                            <span className="absolute right-2 top-2.5 text-xs text-slate-400 font-bold">Bln</span>
+                                                        </div>
                                                     )}
-                                                    <button className="text-red-500 bg-white border border-red-100 p-2 rounded-lg hover:bg-red-50"><i className="fa-solid fa-trash"></i></button>
                                                 </div>
                                             ))}
-                                            <div className="p-3 bg-white flex justify-between items-center font-bold">
-                                                <span className="text-sm text-slate-600">Total Biaya:</span>
-                                                <span className="text-lg text-slate-900">{formatRupiah((selectedOrder.order_parts || []).reduce((s, p)=>s+Number(p.price),0))}</span>
+                                            <div className="p-4 bg-white flex justify-between items-center font-bold border-t border-slate-200">
+                                                <span className="text-sm text-slate-500 uppercase tracking-wider">Estimasi Total:</span>
+                                                <span className="text-xl text-slate-900">{formatRupiah((selectedOrder.order_parts || []).reduce((s, p)=>s+Number(p.price),0))}</span>
                                             </div>
                                         </div>
                                     </div>
-
-                                    {/* Upload Dokumentasi (Hanya Teknisi) */}
-                                    {role === 'teknisi' && (
-                                        <div>
-                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Upload Dokumentasi (Foto/Video)</label>
-                                            <div onClick={()=>alert('Tombol Upload ini nantinya akan membuka galeri HP dan file tersimpan ke Supabase Storage!')} className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center cursor-pointer hover:bg-slate-50 hover:border-red-400 transition-colors bg-white">
-                                                <i className="fa-solid fa-cloud-arrow-up text-3xl text-slate-400 mb-2"></i>
-                                                <p className="font-bold text-sm text-slate-600">Ketuk untuk pilih banyak foto/video</p>
-                                                <p className="text-[10px] text-slate-400 mt-1">Maks. 50MB per file (Otomatis masuk ke folder client)</p>
-                                            </div>
-                                        </div>
-                                    )}
 
                                     {/* Catatan Laporan */}
                                     <div>
-                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 block">Catatan Tambahan Laporan</label>
-                                        <textarea rows="3" defaultValue={selectedOrder.notes} placeholder="Ketik alasan pending, kondisi alat, dll..." className="w-full font-medium text-slate-800 border-2 border-slate-200 p-3 rounded-xl outline-none focus:border-red-500 bg-slate-50"></textarea>
+                                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block ml-1">Catatan Tambahan Laporan</label>
+                                        <textarea rows="3" defaultValue={selectedOrder.notes} placeholder="Ketik alasan pending, kondisi detail alat, dll..." className="w-full font-medium text-slate-800 border-2 border-slate-200 p-3 rounded-xl outline-none focus:border-red-500 bg-slate-50 resize-none shadow-sm"></textarea>
                                     </div>
                                 </div>
-                                <div className="sticky bottom-0 bg-white border-t border-slate-100 p-4 sm:p-5 flex flex-col sm:flex-row justify-end gap-3 rounded-b-2xl">
+                                <div className="sticky bottom-0 bg-white border-t border-slate-200 p-4 sm:p-5 flex flex-col sm:flex-row justify-end gap-3 rounded-b-2xl shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
                                     {role === 'admin' && (
-                                        <button onClick={() => handleSetLunas(selectedOrder)} className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-green-700 bg-green-50 border border-green-200 hover:bg-green-100 sm:mr-auto">
-                                            <i className="fa-solid fa-check-double mr-2"></i> Set Lunas & Masuk Kas
+                                        <button onClick={() => handleSetLunas(selectedOrder)} className="w-full sm:w-auto px-5 py-2.5 rounded-xl font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors sm:mr-auto flex justify-center items-center gap-2">
+                                            <i className="fa-solid fa-check-double"></i> Set Lunas & Masuk Kas
                                         </button>
                                     )}
-                                    <button onClick={() => setShowOrderModal(false)} className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-md">Simpan Pembaruan</button>
+                                    <button onClick={() => setShowOrderModal(false)} className="w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-white bg-slate-800 hover:bg-slate-900 shadow-md transition-colors flex justify-center items-center">
+                                        Tutup Panel
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Modal Form Order Baru */}
+                    {/* Modal Form Order Baru (Khusus Admin) */}
                     {showOrderModal && !selectedOrder && role === 'admin' && (
                         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-200">
                                 <div className="bg-slate-50 border-b border-slate-100 p-5 flex justify-between items-center">
                                     <h3 className="font-black text-lg text-slate-800">Buat Order Baru</h3>
-                                    <button onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-slate-600"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                    <button onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-slate-600 bg-white p-1.5 rounded-lg border border-slate-200"><i className="fa-solid fa-xmark text-lg px-1"></i></button>
                                 </div>
                                 <form onSubmit={handleCreateOrder} className="p-5 space-y-4">
-                                    <input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500" />
+                                    <div><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Tgl Penjadwalan</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500" /></div>
                                     <input type="text" name="customer" required placeholder="Nama Klien/Instansi" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500" />
                                     <input type="text" name="phone" required placeholder="No. WA (cth: 0812...)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500" />
                                     <input type="text" name="unit" required placeholder="Tipe Alat (cth: Treadmill Bodysolid)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500" />
                                     <textarea name="address" required placeholder="Alamat lengkap lokasi..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 resize-none"></textarea>
                                     <textarea name="issue" required placeholder="Kendala/Keluhan yang dilaporkan..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 resize-none"></textarea>
-                                    <select name="technician" required className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500">
+                                    <select name="technician" required className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 cursor-pointer bg-slate-50">
                                         <option value="">-- Tugaskan ke Teknisi --</option>
                                         {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                     </select>
-                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl shadow-md mt-2">Simpan & Tugaskan</button>
+                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-md mt-2 transition-colors">Simpan & Tugaskan</button>
                                 </form>
                             </div>
                         </div>
@@ -628,26 +724,26 @@
                     {/* Modal Tambah Transaksi Kas */}
                     {showFinanceModal && (
                         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in duration-200">
                                 <div className="bg-slate-50 border-b border-slate-100 p-5 flex justify-between items-center">
                                     <h3 className="font-black text-lg text-slate-800">Catat Transaksi Manual</h3>
-                                    <button onClick={() => setShowFinanceModal(false)} className="text-slate-400 hover:text-slate-600"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                    <button onClick={() => setShowFinanceModal(false)} className="text-slate-400 hover:text-slate-600 bg-white p-1.5 rounded-lg border border-slate-200"><i className="fa-solid fa-xmark text-lg px-1"></i></button>
                                 </div>
                                 <form onSubmit={handleAddTransaction} className="p-5 space-y-4">
-                                    <input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-emerald-500" />
+                                    <div><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Tgl Transaksi</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500" /></div>
                                     <div className="grid grid-cols-2 gap-3">
-                                        <select name="type" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500">
+                                        <select name="type" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer">
                                             <option value="in">Pemasukan (+)</option>
                                             <option value="out">Pengeluaran (-)</option>
                                         </select>
-                                        <select name="category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500">
+                                        <select name="category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer">
                                             <option value="Kas Berjalan">Kas Berjalan</option>
                                             <option value="Kas Tetap">Kas Tetap</option>
                                         </select>
                                     </div>
-                                    <input type="number" name="amount" required placeholder="Nominal (Rp)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-black text-xl outline-none focus:border-emerald-500" />
-                                    <input type="text" name="desc" required placeholder="Keterangan / Keperluan..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-emerald-500" />
-                                    <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md mt-2">Simpan Transaksi</button>
+                                    <input type="number" name="amount" required placeholder="Nominal Rupiah..." className="w-full border-2 border-slate-200 p-4 rounded-xl font-black text-xl outline-none focus:border-emerald-500" />
+                                    <input type="text" name="desc" required placeholder="Keterangan / Keperluan (cth: Beli oli)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500" />
+                                    <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-md mt-2 transition-colors">Simpan Transaksi</button>
                                 </form>
                             </div>
                         </div>
@@ -656,24 +752,29 @@
                     {/* Modal Detail Kas (Bisa Edit/Hapus dari dalam) */}
                     {showCashDetailModal.isOpen && (
                         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                            <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[80vh] flex flex-col shadow-2xl">
-                                <div className={`p-5 flex justify-between items-start rounded-t-2xl text-white ${showCashDetailModal.type === 'Kas Berjalan' ? 'bg-blue-600' : 'bg-red-600'}`}>
-                                    <div><h3 className="font-black text-xl mb-1">Detail {showCashDetailModal.type}</h3><p className="text-xs font-medium text-white/80">Kelola riwayat khusus di laci kas ini.</p></div>
-                                    <button onClick={() => setShowCashDetailModal({ isOpen: false, type: null })} className="bg-black/10 hover:bg-black/20 p-2 rounded-full"><i className="fa-solid fa-xmark"></i></button>
+                            <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl animate-in zoom-in duration-200">
+                                <div className={`p-6 flex justify-between items-start rounded-t-2xl text-white ${showCashDetailModal.type === 'Kas Berjalan' ? 'bg-blue-600' : 'bg-red-600'}`}>
+                                    <div><h3 className="font-black text-2xl mb-1">Rincian {showCashDetailModal.type}</h3><p className="text-sm font-medium text-white/80">Kelola riwayat khusus di laci kas ini.</p></div>
+                                    <button onClick={() => setShowCashDetailModal({ isOpen: false, type: null })} className="bg-black/10 hover:bg-black/20 p-2 rounded-full transition-colors"><i className="fa-solid fa-xmark text-lg px-1"></i></button>
                                 </div>
-                                <div className="p-0 overflow-y-auto flex-1 bg-white divide-y divide-slate-100">
-                                    {transactions.filter(t => t.category === showCashDetailModal.type).map(trx => (
-                                        <div key={trx.id} className="p-4 flex justify-between items-center hover:bg-slate-50 transition-colors">
-                                            <div><p className="font-bold text-slate-800 text-sm">{trx.description}</p><p className="text-xs text-slate-400 mt-0.5">{trx.date}</p></div>
-                                            <div className="flex items-center gap-4">
-                                                <div className={`font-black text-sm ${trx.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {trx.type === 'in' ? '+' : '-'}{formatRupiah(trx.amount)}
+                                <div className="p-0 overflow-y-auto flex-1 bg-slate-50">
+                                    <div className="divide-y divide-slate-100 bg-white">
+                                        {transactions.filter(t => t.category === showCashDetailModal.type).map(trx => (
+                                            <div key={trx.id} className="p-4 sm:p-5 flex justify-between items-center hover:bg-slate-50 transition-colors">
+                                                <div>
+                                                    <p className="font-bold text-slate-800 text-sm">{trx.description}</p>
+                                                    <p className="text-xs text-slate-400 mt-1 font-medium"><i className="fa-regular fa-calendar mr-1"></i> {trx.date}</p>
                                                 </div>
-                                                <button onClick={() => handleDeleteTransaction(trx.id)} className="text-slate-300 hover:text-red-600 p-2 bg-slate-50 hover:bg-red-50 rounded-lg"><i className="fa-solid fa-trash"></i></button>
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`font-black text-base sm:text-lg ${trx.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
+                                                        {trx.type === 'in' ? '+' : '-'}{formatRupiah(trx.amount)}
+                                                    </div>
+                                                    <button onClick={() => handleDeleteTransaction(trx.id)} className="text-slate-300 hover:text-red-600 p-2 bg-slate-50 hover:bg-red-50 border border-transparent hover:border-red-100 rounded-lg transition-all"><i className="fa-solid fa-trash"></i></button>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                    {transactions.filter(t => t.category === showCashDetailModal.type).length === 0 && <div className="py-10 text-center text-slate-400 font-medium">Belum ada transaksi tercatat.</div>}
+                                        ))}
+                                        {transactions.filter(t => t.category === showCashDetailModal.type).length === 0 && <div className="py-12 text-center text-slate-400 font-medium">Belum ada transaksi tercatat di kas ini.</div>}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -682,15 +783,15 @@
                     {/* Modal Tambah Teknisi */}
                     {showTechModal && (
                         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in duration-200">
                                 <div className="bg-slate-50 border-b border-slate-100 p-5 flex justify-between items-center">
                                     <h3 className="font-black text-lg text-slate-800">Tambah Teknisi</h3>
-                                    <button onClick={() => setShowTechModal(false)} className="text-slate-400 hover:text-slate-600"><i className="fa-solid fa-xmark text-xl"></i></button>
+                                    <button onClick={() => setShowTechModal(false)} className="text-slate-400 hover:text-slate-600 bg-white p-1.5 rounded-lg border border-slate-200"><i className="fa-solid fa-xmark text-lg px-1"></i></button>
                                 </div>
                                 <form onSubmit={handleAddTechnician} className="p-5 space-y-4">
-                                    <input type="text" name="name" required placeholder="Nama Teknisi" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500" />
-                                    <input type="text" name="phone" required placeholder="No. WA (0812...)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500" />
-                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl shadow-md mt-2">Buat Akses Link</button>
+                                    <div><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Nama Panggilan</label><input type="text" name="name" required placeholder="Ketik nama..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500" /></div>
+                                    <div><label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Nomor WhatsApp</label><input type="text" name="phone" required placeholder="Cth: 081234..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500" /></div>
+                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-md mt-4 transition-colors">Buat Akses Link</button>
                                 </form>
                             </div>
                         </div>
@@ -698,24 +799,25 @@
                 </>
             );
 
-            // Tampilan Loading
-            if (isLoading) return <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50"><i className="fa-solid fa-circle-notch fa-spin text-4xl text-red-600 mb-4"></i><p className="font-bold text-slate-500">Menghubungkan ke Laci Supabase...</p></div>;
+            if (isLoading) return <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50"><i className="fa-solid fa-circle-notch fa-spin text-4xl text-red-600 mb-4"></i><p className="font-bold text-slate-500">Menghubungkan ke Database...</p></div>;
 
-            // Render Utama Aplikasi
             return (
                 <div className="h-screen w-full flex overflow-hidden">
                     <Navigation />
-                    <div className="flex-1 md:ml-64 flex flex-col h-full overflow-hidden relative">
+                    <div className="flex-1 md:ml-64 flex flex-col h-full overflow-hidden relative bg-slate-50/50">
                         <header className="glass-panel border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between z-40 relative sticky top-0">
                             <div className="flex items-center gap-3">
-                                <button className="md:hidden text-slate-600 bg-slate-100 p-2 rounded-lg" onClick={() => setIsMobileMenuOpen(true)}><i className="fa-solid fa-bars text-xl"></i></button>
+                                <button className="md:hidden text-slate-600 bg-slate-100 hover:bg-slate-200 p-2 rounded-lg transition-colors" onClick={() => setIsMobileMenuOpen(true)}><i className="fa-solid fa-bars text-xl"></i></button>
                                 <div>
                                     <h1 className="text-lg sm:text-xl font-black text-slate-800 leading-tight">{role === 'admin' ? 'Portal Manajemen' : 'Aplikasi Lapangan'}</h1>
                                     <p className="text-[10px] sm:text-xs text-slate-500 font-medium">{new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
                                 </div>
                             </div>
+                            <div className="hidden sm:flex items-center gap-2">
+                                <div className="bg-red-50 border border-red-100 px-3 py-1.5 rounded-lg text-xs font-bold text-red-700"><i className="fa-solid fa-circle text-[8px] mr-1 text-green-500 animate-pulse"></i> Database Online</div>
+                            </div>
                         </header>
-                        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-20">
+                        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24">
                             <div className="max-w-6xl mx-auto">
                                 {role === 'admin' && activeTab === 'dashboard' && renderDashboard()}
                                 {role === 'admin' && activeTab === 'jadwal' && renderJadwal()}
