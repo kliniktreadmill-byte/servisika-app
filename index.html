@@ -29,6 +29,9 @@
         
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Smooth horizontal scrolling for tables on mobile */
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     </style>
 </head>
 <body class="text-slate-800 selection:bg-red-200 selection:text-red-900">
@@ -93,7 +96,7 @@
             // Modals & UI State
             const [dashFilter, setDashFilter] = useState(null); 
             const [jadwalTab, setJadwalTab] = useState('aktif'); 
-            const [jadwalViewMode, setJadwalViewMode] = useState('semua'); // View filter for Jadwal & Order
+            const [jadwalViewMode, setJadwalViewMode] = useState('semua'); 
             const [jadwalFilterTech, setJadwalFilterTech] = useState('');
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState('');
             
@@ -108,6 +111,10 @@
             
             const [selectedGalleryFolder, setSelectedGalleryFolder] = useState(null);
             const [isSaving, setIsSaving] = useState(false);
+
+            // Storage States
+            const [orderFiles, setOrderFiles] = useState([]);
+            const [isUploading, setIsUploading] = useState(false);
 
             useEffect(() => {
                 const initApp = async () => {
@@ -169,6 +176,45 @@
                 };
                 initApp();
             }, []);
+
+            const fetchOrderFiles = async (orderId) => {
+                try {
+                    const { data, error } = await supabase.storage.from('dokumentasi').list(orderId);
+                    if (data) {
+                        const validFiles = data.filter(f => f.name !== '.emptyFolderPlaceholder');
+                        const filesWithUrls = validFiles.map(f => {
+                            const { data: urlData } = supabase.storage.from('dokumentasi').getPublicUrl(`${orderId}/${f.name}`);
+                            return { ...f, publicUrl: urlData.publicUrl };
+                        });
+                        setOrderFiles(filesWithUrls);
+                    }
+                } catch (err) {
+                    console.error("Gagal load files:", err);
+                }
+            };
+
+            const handleFileUpload = async (e, orderId) => {
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+                
+                setIsUploading(true);
+                try {
+                    for (const file of files) {
+                        const fileExt = file.name.split('.').pop();
+                        const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+                        const filePath = `${orderId}/${fileName}`;
+                        
+                        const { error } = await supabase.storage.from('dokumentasi').upload(filePath, file);
+                        if (error) throw error;
+                    }
+                    await fetchOrderFiles(orderId);
+                } catch (error) {
+                    console.error("Upload error:", error);
+                    alert("Gagal upload file. Pastikan sudah menjalankan SQL untuk membuka kunci storage.");
+                } finally {
+                    setIsUploading(false);
+                }
+            };
 
             const loginUser = (userRole, userData) => {
                 setIsLoggedIn(true);
@@ -268,13 +314,13 @@
                         </div>
 
                         <div className="rounded-xl overflow-hidden border border-slate-200 mb-8 w-full">
-                            <div className="overflow-x-auto">
+                            <div className="table-scroll w-full overflow-x-auto">
                                 <table className="w-full text-left text-sm min-w-[500px]">
                                     <thead>
                                         <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
                                             <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs">Deskripsi (Jasa & Sparepart)</th>
-                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-center">Garansi</th>
-                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-right">Harga (Rp)</th>
+                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-center w-24">Garansi</th>
+                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-right w-40">Harga (Rp)</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -287,7 +333,7 @@
                                                 <td className="p-3 sm:p-4 text-center text-slate-500 font-medium text-xs sm:text-sm">{p.warranty_months > 0 ? `${p.warranty_months} Bln` : '-'}</td>
                                                 <td className="p-3 sm:p-4 text-right font-black text-slate-800 text-sm whitespace-nowrap">
                                                     {p.is_estimate ? (
-                                                        <span className="text-orange-600 text-xs">{p.estimate_text || 'Menunggu Info'}</span>
+                                                        <span className="text-orange-600 text-xs">{p.estimate_text || 'TBA'}</span>
                                                     ) : (
                                                         formatRupiah(p.price)
                                                     )}
@@ -307,23 +353,23 @@
                             <div className="flex-1 relative order-2 sm:order-1">
                                 <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">Informasi Pembayaran</p>
                                 <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-2">
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3">
                                     <div>
                                         <p className="font-black text-blue-800 text-lg sm:text-xl tracking-wider mb-0.5">638-042-8651 <span className="text-xs sm:text-sm text-blue-600 font-bold">(BCA)</span></p>
-                                        <p className="text-xs sm:text-sm font-bold text-slate-600 mb-1">A.n: Saepul Anwar</p>
+                                        <p className="text-xs sm:text-sm font-bold text-slate-600">A.n: Saepul Anwar</p>
                                     </div>
                                     {isStandalone && (
-                                        <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95 w-full sm:w-auto mt-1">
+                                        <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
                                             <i className="fa-regular fa-copy"></i> Salin Rekening
                                         </button>
                                     )}
                                 </div>
                             </div>
                             
-                            <div className="flex-1 flex flex-col items-center sm:items-end justify-end pt-2 text-center sm:text-right order-1 sm:order-2 relative">
+                            <div className="flex-1 flex flex-col items-center sm:items-end justify-end pt-2 text-center sm:text-right order-1 sm:order-2 relative h-32">
                                 <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
-                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-48 sm:w-56 object-contain mix-blend-multiply opacity-90 -my-8 sm:-my-10 relative z-0 pointer-events-none" />
-                                <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center sm:text-right z-10 relative">Admin Servisika</p>
+                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-48 sm:w-56 object-contain mix-blend-multiply opacity-90 absolute bottom-4 sm:right-0 z-0 pointer-events-none" />
+                                <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center sm:text-right z-10 relative mt-auto">Admin Servisika</p>
                             </div>
                         </div>
                         
@@ -477,7 +523,7 @@
                 }
                 setIsSaving(false);
             };
-
+            
             const handleAddTechnician = async (e) => {
                 e.preventDefault();
                 setIsSaving(true);
@@ -626,15 +672,14 @@
             const renderDashboard = () => {
                 const todayStr = getLocalDateString(new Date());
                 let displayOrders = orders;
+                
                 if (dashFilter === 'aktif') displayOrders = orders.filter(o => isOrderActive(o.status));
                 else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
                 else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
                 const activeFiltered = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
                 
-                // Hari ini & Mendatang
-                const upcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date)).slice(0, 15);
-                // Tertunda (Lewat dari hari ini)
+                const upcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
                 const overdueList = activeFiltered.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
 
                 const renderOrderItem = (o) => {
@@ -733,14 +778,12 @@
                         </div>
                         <div className="divide-y divide-slate-100 bg-slate-50">
                             
-                            {/* HARI INI & MENDATANG DI ATAS */}
                             <div className="bg-slate-100/80 p-2.5 px-4 border-b border-slate-200 flex items-center gap-2">
                                 <i className="fa-solid fa-calendar-day text-slate-400"></i>
                                 <p className="text-xs font-black text-slate-600 uppercase tracking-widest">Hari Ini & Mendatang</p>
                             </div>
                             {upcomingList.map(renderOrderItem)}
                             
-                            {/* TERTUNDA DI BAWAH */}
                             {overdueList.length > 0 && (
                                 <>
                                     <div className="bg-orange-50/80 p-2.5 px-4 border-b border-orange-100 flex items-center gap-2 border-t">
@@ -765,8 +808,6 @@
 
             const renderJadwal = () => {
                 const todayStr = getLocalDateString(new Date());
-                
-                // Helper untuk Filter Mingguan
                 const todayDateObj = new Date();
                 const dayOfWeek = todayDateObj.getDay(); 
                 const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
@@ -836,7 +877,6 @@
                             </div>
                         </div>
 
-                        {/* View Mode Filters for Active Tab */}
                         {jadwalTab === 'aktif' && (
                             <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-wrap gap-2">
                                 <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif</button>
@@ -910,7 +950,7 @@
                                                 }`}>{o.status}</span>
                                             </td>
                                             <td className="p-4 text-center align-top">
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
+                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
                                             </td>
                                         </tr>
                                     )})}
@@ -935,12 +975,12 @@
 
                         <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 shadow-sm bg-blue-50/50">
                             <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage Folder</p>
-                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat dokumentasi yang diupload teknisi. (Saat ini sistem Storage nyata sedang disiapkan).</p>
+                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung dan didownload terpisah (Tanpa ZIP).</p>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                             {orders.map(o => (
-                                <div key={o.id} onClick={() => setSelectedGalleryFolder(o)} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden">
+                                <div key={o.id} onClick={() => { setSelectedGalleryFolder(o); fetchOrderFiles(o.id); }} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden">
                                     <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <i className="fa-solid fa-arrow-up-right-from-square text-blue-500"></i>
                                     </div>
@@ -958,8 +998,8 @@
                                         <p className="line-clamp-2"><i className="fa-solid fa-gear opacity-50 mr-1"></i> {o.unit} - <span className="text-red-500">{o.issue}</span></p>
                                     </div>
                                     <div className="flex justify-between items-center border-t border-slate-100 pt-3">
-                                        <span className="text-[10px] text-slate-400 font-bold">0 File(s)</span>
-                                        <span className="text-blue-600 text-[10px] font-bold uppercase tracking-wider">Buka Folder <i className="fa-solid fa-chevron-right ml-1"></i></span>
+                                        <span className="text-[10px] text-slate-400 font-bold">Ketuk Buka</span>
+                                        <span className="text-blue-600 text-[10px] font-bold uppercase tracking-wider">Isi Folder <i className="fa-solid fa-chevron-right ml-1"></i></span>
                                     </div>
                                 </div>
                             ))}
@@ -1119,11 +1159,9 @@
                 const todayStr = getLocalDateString(new Date());
                 const myOrders = orders.filter(o => o.technician_name === currentUser.name && (isOrderActive(o.status) || o.status.includes('Komplain')));
                 
-                // Pisah yang hari ini (atau mendatang) dan yang tertunda
                 const upcomingOrders = myOrders.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
                 const overdueOrders = myOrders.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
 
-                // Real weekly schedule logic (Senin - Minggu yang akurat)
                 const todayDateObj = new Date();
                 const dayOfWeek = todayDateObj.getDay(); 
                 const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
@@ -1187,7 +1225,7 @@
                             </div>
                             <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
-                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
+                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
                             </div>
                         </div>
                     );
@@ -1210,7 +1248,6 @@
 
                         {jadwalTab === 'list' ? (
                             <div className="space-y-6">
-                                {/* HARI INI & MENDATANG DI ATAS */}
                                 <div>
                                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
                                         <i className="fa-solid fa-calendar-day"></i> Jadwal Hari Ini & Mendatang
@@ -1226,7 +1263,6 @@
                                     </div>
                                 </div>
 
-                                {/* TERTUNDA DI BAWAH */}
                                 {overdueOrders.length > 0 && (
                                     <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl">
                                         <h3 className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -1253,7 +1289,7 @@
                                             </div>
                                             <div className="flex-1 space-y-2">
                                                 {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
-                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
+                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }}>
                                                         <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
                                                         <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
                                                     </div>
@@ -1338,20 +1374,56 @@
                                         {role === 'admin' ? (
                                             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-solid fa-folder-open"></i> Bukti Pengerjaan (Dari Teknisi)</label>
-                                                <div className="border border-slate-200 rounded-xl p-6 text-center bg-slate-50 shadow-inner">
-                                                    <i className="fa-solid fa-image text-3xl text-slate-300 mb-2 block"></i>
-                                                    <p className="text-sm font-bold text-slate-500">Belum ada file bukti pengerjaan.</p>
-                                                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Bisa juga diunduh di menu Galeri & Bukti.</p>
-                                                </div>
+                                                {orderFiles.length > 0 ? (
+                                                    <div className="flex gap-3 overflow-x-auto pb-2">
+                                                        {orderFiles.map((file, i) => (
+                                                            <div key={i} className="w-24 h-24 shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 relative group">
+                                                                {file.metadata?.mimetype?.startsWith('video') ? (
+                                                                    <video src={file.publicUrl} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <img src={file.publicUrl} className="w-full h-full object-cover" />
+                                                                )}
+                                                                <a href={file.publicUrl} target="_blank" className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <i className="fa-solid fa-eye text-white text-xl"></i>
+                                                                </a>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                ) : (
+                                                    <div className="border border-slate-200 rounded-xl p-6 text-center bg-slate-50 shadow-inner">
+                                                        <i className="fa-solid fa-image text-3xl text-slate-300 mb-2 block"></i>
+                                                        <p className="text-sm font-bold text-slate-500">Belum ada file bukti pengerjaan.</p>
+                                                    </div>
+                                                )}
                                             </div>
                                         ) : (
                                             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-solid fa-photo-film"></i> Upload Bukti Pengerjaan</label>
-                                                <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 cursor-pointer hover:bg-red-50 hover:border-red-300 transition-colors group">
-                                                    <i className="fa-solid fa-cloud-arrow-up text-4xl text-slate-300 group-hover:text-red-400 transition-colors mb-3"></i>
-                                                    <p className="text-sm font-black text-slate-700">Ketuk untuk pilih Foto / Video</p>
-                                                    <p className="text-[10px] text-slate-500 font-bold mt-1.5">Maks 50MB per file (Sistem Storage belum diaktifkan di Prototype ini)</p>
-                                                </div>
+                                                
+                                                {orderFiles.length > 0 && (
+                                                    <div className="flex gap-3 overflow-x-auto pb-3 mb-3 border-b border-slate-100">
+                                                        {orderFiles.map((file, i) => (
+                                                            <div key={i} className="w-16 h-16 shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-slate-100">
+                                                                {file.metadata?.mimetype?.startsWith('video') ? (
+                                                                    <video src={file.publicUrl} className="w-full h-full object-cover" />
+                                                                ) : (
+                                                                    <img src={file.publicUrl} className="w-full h-full object-cover" />
+                                                                )}
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                <label className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 cursor-pointer hover:bg-red-50 hover:border-red-300 transition-colors group block">
+                                                    <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={(e) => handleFileUpload(e, selectedOrder.id)} disabled={isUploading} />
+                                                    {isUploading ? (
+                                                        <i className="fa-solid fa-circle-notch fa-spin text-4xl text-red-500 mb-3"></i>
+                                                    ) : (
+                                                        <i className="fa-solid fa-cloud-arrow-up text-4xl text-slate-300 group-hover:text-red-400 transition-colors mb-3"></i>
+                                                    )}
+                                                    <p className="text-sm font-black text-slate-700">{isUploading ? 'Sedang Mengupload...' : 'Ketuk untuk pilih Foto / Video'}</p>
+                                                    <p className="text-[10px] text-slate-500 font-bold mt-1.5">Bisa pilih lebih dari satu file sekaligus.</p>
+                                                </label>
                                             </div>
                                         )}
 
@@ -1478,29 +1550,44 @@
                         </div>
                     )}
 
-                    {/* Modal Pop-up Galeri Folder */}
+                    {/* Modal Pop-up Galeri Folder (Media Viewer) */}
                     {selectedGalleryFolder && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
-                            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden border border-slate-200">
-                                <div className="bg-blue-50 border-b border-blue-100 p-5 flex justify-between items-center">
-                                    <h3 className="font-black text-xl text-blue-800 flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Isi Folder</h3>
-                                    <button onClick={() => setSelectedGalleryFolder(null)} className="text-blue-400 hover:text-blue-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-blue-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
+                                <div className="bg-blue-50 border-b border-blue-100 p-5 flex justify-between items-center shrink-0">
+                                    <div>
+                                        <h3 className="font-black text-xl text-blue-800 flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Isi Folder</h3>
+                                        <p className="text-xs text-blue-600 font-bold mt-0.5">{selectedGalleryFolder.customer} • {selectedGalleryFolder.unit}</p>
+                                    </div>
+                                    <button onClick={() => setSelectedGalleryFolder(null)} className="text-blue-400 hover:text-blue-800 bg-white p-2 w-10 h-10 flex items-center justify-center rounded-full border border-blue-200 shadow-sm transition-colors"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
-                                <div className="p-6">
-                                    <p className="font-bold text-slate-800 text-lg mb-1">{selectedGalleryFolder.customer}</p>
-                                    <p className="text-xs text-slate-500 font-medium mb-4">{selectedGalleryFolder.unit} - {selectedGalleryFolder.issue}</p>
-                                    
-                                    <div className="border border-slate-200 rounded-xl bg-slate-50 p-12 text-center shadow-inner">
-                                        <i className="fa-regular fa-images text-5xl text-slate-300 mb-3 block"></i>
-                                        <p className="font-bold text-slate-600 mb-1">Belum ada file di folder ini.</p>
-                                        <p className="text-xs text-slate-400 font-medium">Fitur upload teknisi ke Supabase Storage akan segera diaktifkan.</p>
-                                    </div>
-                                    
-                                    <div className="mt-6 flex justify-end">
-                                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md transition-colors flex items-center gap-2">
-                                            <i className="fa-solid fa-download"></i> Download Folder (ZIP)
-                                        </button>
-                                    </div>
+                                <div className="p-6 overflow-y-auto flex-1 bg-slate-100">
+                                    {orderFiles.length > 0 ? (
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                                            {orderFiles.map((file, i) => (
+                                                <div key={i} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm group">
+                                                    <div className="aspect-square bg-slate-200 relative">
+                                                        {file.metadata?.mimetype?.startsWith('video') ? (
+                                                            <video src={file.publicUrl} controls className="w-full h-full object-cover" />
+                                                        ) : (
+                                                            <img src={file.publicUrl} className="w-full h-full object-cover" />
+                                                        )}
+                                                    </div>
+                                                    <div className="p-3">
+                                                        <a href={file.publicUrl} target="_blank" download className="w-full bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border border-blue-200 hover:border-blue-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors">
+                                                            <i className="fa-solid fa-download"></i> Unduh File
+                                                        </a>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="border border-slate-200 rounded-xl bg-white p-16 text-center shadow-sm">
+                                            <i className="fa-regular fa-images text-6xl text-slate-300 mb-4 block"></i>
+                                            <p className="font-bold text-slate-600 text-lg mb-1">Belum ada file di folder ini.</p>
+                                            <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">Media foto dan video yang diunggah oleh teknisi saat pengerjaan akan muncul di sini.</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
