@@ -108,6 +108,7 @@
             const [modalParts, setModalParts] = useState([]); 
             
             const [showFinanceModal, setShowFinanceModal] = useState(false);
+            const [trxTypeForm, setTrxTypeForm] = useState('in'); // Fitur Transfer Kas
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
             const [showTechModal, setShowTechModal] = useState(false);
             
@@ -127,13 +128,14 @@
                     const invoiceId = urlParams.get('invoice');
 
                     try {
-                        const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+                        // FIX: Ditambahkan order by created_at untuk menjaga urutan mutasi di hari yang sama
+                        const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
                         if (trxData) setTransactions(trxData);
                         
                         const { data: techData } = await supabase.from('technicians').select('*').order('created_at', { ascending: false });
                         if (techData) setTechnicians(techData);
                         
-                        const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
+                        const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false }).order('created_at', { ascending: false });
                         if (ordData) setOrders(ordData);
 
                         if (invoiceId) {
@@ -285,7 +287,6 @@
                     document.body.removeChild(link);
                     URL.revokeObjectURL(downloadUrl);
 
-                    // Auto mark as downloaded
                     if(!order.is_media_downloaded) {
                         await toggleMediaDownloaded(order.id, false);
                     }
@@ -359,7 +360,8 @@
                 });
             }, [transactions, financeFilter]);
 
-            const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status) && !status.includes('Selesai');
+            // FIX: Hanya Selesai (Lunas) & Batal yang hilang dari layar Aktif. Selesai (Belum Bayar) tetap muncul.
+            const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
 
             const InvoiceTemplate = ({ order, isStandalone = false }) => {
                 const parts = order.order_parts || [];
@@ -501,7 +503,8 @@
                         await supabase.from('order_parts').insert(partsToInsert);
                     }
 
-                    if(status === 'Lunas' && selectedOrder.status !== 'Lunas' && role === 'admin') {
+                    // FIX: Teknisi juga bisa set Lunas dan masuk Kas
+                    if(status === 'Lunas' && selectedOrder.status !== 'Lunas') {
                         const totalAmount = partsToInsert.reduce((sum, p) => sum + (p.is_estimate ? 0 : p.price), 0);
                         if(totalAmount > 0) {
                             const newTrx = {
@@ -513,10 +516,11 @@
                         }
                     }
 
-                    const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+                    // Refresh Data
+                    const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
                     if (trxData) setTransactions(trxData);
 
-                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
+                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false }).order('created_at', { ascending: false });
                     if(ordData) setOrders(ordData);
                     setShowOrderModal(false);
                 } catch (error) {
@@ -529,10 +533,7 @@
             
             const handleDeleteOrder = async (id) => {
                 if(window.confirm('YAKIN INGIN MENGHAPUS ORDER INI?\n\nData, Invoice, dan SEMUA FOTO/VIDEO di dalamnya akan terhapus permanen dari server.')) {
-                    // Auto-sweep Storage files first
                     await deleteFolderFiles(id);
-                    
-                    // Then delete order data
                     await supabase.from('orders').delete().eq('id', id);
                     setOrders(orders.filter(o => o.id !== id));
                     setShowOrderModal(false);
@@ -557,7 +558,7 @@
                 if (!error && data) {
                     const defaultPart = { order_id: data[0].id, name: 'Jasa Layanan Servis Kunjungan', price: 250000, warranty_months: 0, is_estimate: false };
                     await supabase.from('order_parts').insert([defaultPart]);
-                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false });
+                    const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false }).order('created_at', { ascending: false });
                     if(ordData) setOrders(ordData);
                     setShowOrderModal(false);
                 }
@@ -568,17 +569,40 @@
                 e.preventDefault();
                 setIsSaving(true);
                 const formData = new FormData(e.target);
-                const newTrx = {
-                    date: formData.get('date'), type: formData.get('type'),
-                    category: formData.get('category'), amount: parseCurrency(formData.get('amount')),
-                    description: formData.get('desc')
-                };
-                const { data, error } = await supabase.from('transactions').insert([newTrx]).select();
-                if (!error && data) {
-                    setTransactions([data[0], ...transactions]);
+                const date = formData.get('date');
+                const amount = parseCurrency(formData.get('amount'));
+                const desc = formData.get('desc');
+                const type = formData.get('type');
+
+                try {
+                    // FIX: Logika Transfer Kas (Mutasi Antar Kas)
+                    if (type === 'transfer') {
+                        const fromCat = formData.get('from_category');
+                        const toCat = formData.get('to_category');
+                        if (fromCat === toCat) {
+                            alert("Kategori kas asal dan tujuan tidak boleh sama!");
+                            setIsSaving(false);
+                            return;
+                        }
+                        const trx1 = { date, type: 'out', category: fromCat, amount, description: `Mutasi Keluar ke ${toCat} - ${desc}` };
+                        const trx2 = { date, type: 'in', category: toCat, amount, description: `Mutasi Masuk dari ${fromCat} - ${desc}` };
+                        await supabase.from('transactions').insert([trx1, trx2]);
+                    } else {
+                        const category = formData.get('category');
+                        const newTrx = { date, type, category, amount, description: desc };
+                        await supabase.from('transactions').insert([newTrx]);
+                    }
+                    
+                    const { data } = await supabase.from('transactions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
+                    if(data) setTransactions(data);
+                    
                     setShowFinanceModal(false);
+                    setTrxTypeForm('in'); // Reset form transfer
+                } catch(err) {
+                    console.error(err);
+                } finally {
+                    setIsSaving(false);
                 }
-                setIsSaving(false);
             };
 
             const handleDeleteTransaction = async (id) => {
@@ -743,6 +767,7 @@
 
                 const activeFiltered = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
                 
+                // Pemisahan Prioritas di Dashboard
                 const upcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
                 const overdueList = activeFiltered.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
 
@@ -752,10 +777,11 @@
                     return (
                         <div key={o.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50/80 transition-colors bg-white">
                             <div className="flex gap-4 items-start flex-1">
-                                <div className="bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 text-center shrink-0 w-20 shadow-sm relative overflow-hidden mt-1">
+                                <div className="bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 text-center shrink-0 w-20 shadow-sm relative overflow-hidden mt-1 flex flex-col items-center justify-center">
                                     <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
-                                    <p className="text-xl font-black text-slate-800 leading-none mt-0.5">{new Date(o.date).getDate()}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none mb-1 mt-1">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
+                                    <p className="text-xl font-black text-slate-800 leading-none">{new Date(o.date).getDate()}</p>
+                                    <p className="text-[10px] text-red-600 font-black uppercase tracking-widest mt-1 bg-red-50 px-2 rounded-full w-full truncate border border-red-100">{new Date(o.date).toLocaleDateString('id-ID', {month:'short'})}</p>
                                 </div>
                                 <div className="overflow-hidden flex-1">
                                     <div className="flex items-center gap-2">
@@ -886,6 +912,7 @@
 
                 let filteredOrders = orders.filter(o => jadwalTab === 'aktif' ? isOrderActive(o.status) || o.status.includes('Komplain') : ['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain'));
                 
+                // Custom View Filters
                 if (jadwalTab === 'aktif') {
                     if (jadwalViewMode === 'hari_ini') {
                         filteredOrders = filteredOrders.filter(o => o.date === todayStr);
@@ -1400,10 +1427,10 @@
                                                 <option value="Jadwal Ulang">Klien Minta Jadwal Ulang</option>
                                                 <option value="Selesai (Belum Bayar)">Pengerjaan Selesai (Belum Bayar)</option>
                                                 {role === 'admin' && <option value="Komplain (Tindak Lanjut Garansi)">Komplain (Tindak Lanjut Garansi)</option>}
-                                                {role === 'admin' && <option value="Lunas" className="font-black text-green-700">SELESAI & LUNAS (Masuk Kas Berjalan)</option>}
+                                                <option value="Lunas" className="font-black text-green-700">SELESAI & LUNAS (Masuk Kas Berjalan)</option>
                                                 {role === 'admin' && <option value="Batal" className="font-black text-red-600">BATAL</option>}
                                             </select>
-                                            {role === 'admin' && selectedOrder.status !== 'Lunas' && (
+                                            {selectedOrder.status !== 'Lunas' && (
                                                 <p className="text-[10px] text-emerald-600 font-bold mt-2"><i className="fa-solid fa-circle-info mr-1"></i>Pilih "Lunas" untuk otomatis memindahkan total ke Arus Kas Berjalan.</p>
                                             )}
                                         </div>
@@ -1684,24 +1711,47 @@
                             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200">
                                 <div className="bg-emerald-50 border-b border-emerald-100 p-5 flex justify-between items-center">
                                     <h3 className="font-black text-xl text-emerald-800 flex items-center gap-2"><i className="fa-solid fa-file-invoice-dollar"></i> Catat Transaksi</h3>
-                                    <button onClick={() => setShowFinanceModal(false)} className="text-emerald-600 hover:bg-emerald-100 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-emerald-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
+                                    <button onClick={() => { setShowFinanceModal(false); setTrxTypeForm('in'); }} className="text-emerald-600 hover:bg-emerald-100 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-emerald-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
                                 <form onSubmit={handleAddTransaction} className="p-6 space-y-4">
                                     <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tgl Transaksi</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 text-slate-700 bg-slate-50" /></div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Jenis</label>
-                                            <select name="type" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
-                                                <option value="in">Pemasukan (+)</option>
-                                                <option value="out">Pengeluaran (-)</option>
-                                            </select>
+                                    
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Jenis Transaksi</label>
+                                        <select name="type" value={trxTypeForm} onChange={(e) => setTrxTypeForm(e.target.value)} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                            <option value="in">Pemasukan (+)</option>
+                                            <option value="out">Pengeluaran (-)</option>
+                                            <option value="transfer">Pindah / Transfer Antar Kas</option>
+                                        </select>
+                                    </div>
+                                    
+                                    {trxTypeForm === 'transfer' ? (
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Dari Kas</label>
+                                                <select name="from_category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                                    <option value="Kas Berjalan">Kas Berjalan</option>
+                                                    <option value="Kas Tetap">Kas Tetap</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Ke Kas</label>
+                                                <select name="to_category" defaultValue="Kas Tetap" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                                    <option value="Kas Berjalan">Kas Berjalan</option>
+                                                    <option value="Kas Tetap">Kas Tetap</option>
+                                                </select>
+                                            </div>
                                         </div>
-                                        <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Kategori Kas</label>
+                                    ) : (
+                                        <div>
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Pilih Kas</label>
                                             <select name="category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
                                                 <option value="Kas Berjalan">Kas Berjalan</option>
                                                 <option value="Kas Tetap">Kas Tetap</option>
                                             </select>
                                         </div>
-                                    </div>
+                                    )}
+
                                     <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nominal Rupiah</label>
                                         <div className="relative">
                                             <span className="absolute left-4 top-[17px] text-slate-400 font-black text-lg">Rp</span>
