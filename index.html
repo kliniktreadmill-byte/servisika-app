@@ -11,7 +11,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- Library untuk membungkus ZIP otomatis -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <style>
@@ -32,7 +31,6 @@
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        /* Smooth horizontal scrolling for tables on mobile */
         .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     </style>
 </head>
@@ -77,7 +75,6 @@
         };
 
         const App = () => {
-            // App State
             const [isInitialLoading, setIsInitialLoading] = useState(true);
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [role, setRole] = useState(null); 
@@ -86,21 +83,21 @@
             const [activeTab, setActiveTab] = useState('dashboard');
             const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
             
-            // Special Views
             const [isBossView, setIsBossView] = useState(false);
             const [publicInvoiceOrder, setPublicInvoiceOrder] = useState(null);
 
-            // Data State
             const [transactions, setTransactions] = useState([]);
             const [technicians, setTechnicians] = useState([]);
             const [orders, setOrders] = useState([]);
 
-            // Modals & UI State
             const [dashFilter, setDashFilter] = useState(null); 
+            const [dashTimeFilter, setDashTimeFilter] = useState('semua');
+            
             const [jadwalTab, setJadwalTab] = useState('aktif'); 
             const [jadwalViewMode, setJadwalViewMode] = useState('semua'); 
             const [jadwalFilterTech, setJadwalFilterTech] = useState('');
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState('');
+            const [jadwalSearch, setJadwalSearch] = useState('');
             
             const [financeFilter, setFinanceFilter] = useState({ search: '', category: 'Semua', startDate: '', endDate: '' });
             const [showOrderModal, setShowOrderModal] = useState(false);
@@ -108,15 +105,15 @@
             const [modalParts, setModalParts] = useState([]); 
             
             const [showFinanceModal, setShowFinanceModal] = useState(false);
-            const [trxTypeForm, setTrxTypeForm] = useState('in'); // Fitur Transfer Kas
+            const [trxTypeForm, setTrxTypeForm] = useState('in'); 
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
             const [showTechModal, setShowTechModal] = useState(false);
             
+            const [galeriTab, setGaleriTab] = useState('baru'); // 'baru', 'arsip'
             const [selectedGalleryFolder, setSelectedGalleryFolder] = useState(null);
+            
             const [isSaving, setIsSaving] = useState(false);
             const [isZipping, setIsZipping] = useState(false);
-
-            // Storage States
             const [orderFiles, setOrderFiles] = useState([]);
             const [isUploading, setIsUploading] = useState(false);
 
@@ -128,7 +125,6 @@
                     const invoiceId = urlParams.get('invoice');
 
                     try {
-                        // FIX: Ditambahkan order by created_at untuk menjaga urutan mutasi di hari yang sama
                         const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
                         if (trxData) setTransactions(trxData);
                         
@@ -360,7 +356,6 @@
                 });
             }, [transactions, financeFilter]);
 
-            // FIX: Hanya Selesai (Lunas) & Batal yang hilang dari layar Aktif. Selesai (Belum Bayar) tetap muncul.
             const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
 
             const InvoiceTemplate = ({ order, isStandalone = false }) => {
@@ -486,9 +481,14 @@
                 const date = formData.get('date') || selectedOrder.date;
                 const technician_name = formData.get('technician') || selectedOrder.technician_name;
                 const time_estimate = formData.get('time_estimate') || selectedOrder.time_estimate || '';
+                
+                // Fields from Modal Edit
+                const unit = formData.get('unit') || selectedOrder.unit;
+                const issue = formData.get('issue') || selectedOrder.issue;
+                const maps_link = formData.get('maps_link') || selectedOrder.maps_link || '';
 
                 try {
-                    await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name, time_estimate }).eq('id', selectedOrder.id);
+                    await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name, time_estimate, unit, issue, maps_link }).eq('id', selectedOrder.id);
                     
                     await supabase.from('order_parts').delete().eq('order_id', selectedOrder.id);
                     const partsToInsert = modalParts.filter(p => p.name.trim() !== '').map(p => ({
@@ -503,7 +503,6 @@
                         await supabase.from('order_parts').insert(partsToInsert);
                     }
 
-                    // FIX: Teknisi juga bisa set Lunas dan masuk Kas
                     if(status === 'Lunas' && selectedOrder.status !== 'Lunas') {
                         const totalAmount = partsToInsert.reduce((sum, p) => sum + (p.is_estimate ? 0 : p.price), 0);
                         if(totalAmount > 0) {
@@ -516,7 +515,6 @@
                         }
                     }
 
-                    // Refresh Data
                     const { data: trxData } = await supabase.from('transactions').select('*').order('date', { ascending: false }).order('created_at', { ascending: false });
                     if (trxData) setTransactions(trxData);
 
@@ -545,6 +543,7 @@
                 setIsSaving(true);
                 const formData = new FormData(e.target);
                 const technician_name = formData.get('technician') || 'Belum Ditugaskan';
+                const maps_link = formData.get('maps_link') || '';
 
                 const newOrder = {
                     date: formData.get('date'), customer: formData.get('customer'),
@@ -552,6 +551,7 @@
                     unit: formData.get('unit'), issue: formData.get('issue'),
                     technician_name: technician_name, status: 'Proses',
                     time_estimate: formData.get('time_estimate') || '',
+                    maps_link: maps_link,
                     order_id_text: 'ORD-' + Math.floor(Math.random() * 10000)
                 };
                 const { data, error } = await supabase.from('orders').insert([newOrder]).select();
@@ -575,7 +575,6 @@
                 const type = formData.get('type');
 
                 try {
-                    // FIX: Logika Transfer Kas (Mutasi Antar Kas)
                     if (type === 'transfer') {
                         const fromCat = formData.get('from_category');
                         const toCat = formData.get('to_category');
@@ -597,7 +596,7 @@
                     if(data) setTransactions(data);
                     
                     setShowFinanceModal(false);
-                    setTrxTypeForm('in'); // Reset form transfer
+                    setTrxTypeForm('in');
                 } catch(err) {
                     console.error(err);
                 } finally {
@@ -759,6 +758,21 @@
 
             const renderDashboard = () => {
                 const todayStr = getLocalDateString(new Date());
+                const todayDateObj = new Date();
+                const dayOfWeek = todayDateObj.getDay(); 
+                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                
+                const mondayDate = new Date(todayDateObj);
+                mondayDate.setDate(diffToMonday);
+                mondayDate.setHours(0,0,0,0);
+                
+                const sundayDate = new Date(mondayDate);
+                sundayDate.setDate(mondayDate.getDate() + 6);
+                sundayDate.setHours(23,59,59,999);
+                
+                const firstDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth(), 1);
+                const lastDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth() + 1, 0);
+
                 let displayOrders = orders;
                 
                 if (dashFilter === 'aktif') displayOrders = orders.filter(o => isOrderActive(o.status));
@@ -767,9 +781,23 @@
 
                 const activeFiltered = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
                 
-                // Pemisahan Prioritas di Dashboard
-                const upcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
-                const overdueList = activeFiltered.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
+                let filteredForTime = activeFiltered;
+                if (dashTimeFilter === 'hari_ini') {
+                    filteredForTime = activeFiltered.filter(o => o.date === todayStr);
+                } else if (dashTimeFilter === 'minggu_ini') {
+                    filteredForTime = activeFiltered.filter(o => {
+                        const d = new Date(o.date);
+                        return d >= mondayDate && d <= sundayDate;
+                    });
+                } else if (dashTimeFilter === 'bulan_ini') {
+                    filteredForTime = activeFiltered.filter(o => {
+                        const d = new Date(o.date);
+                        return d >= firstDayOfMonth && d <= lastDayOfMonth;
+                    });
+                }
+
+                const upcomingList = filteredForTime.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
+                const overdueList = filteredForTime.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
 
                 const renderOrderItem = (o) => {
                     const waPhone = getCleanPhone(o.phone);
@@ -854,7 +882,7 @@
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-                        <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+                        <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-center flex-wrap gap-4">
                             <div>
                                 <h3 className="font-black text-slate-800 tracking-tight flex items-center gap-2">
                                     Jadwal Pengerjaan Berjalan
@@ -862,9 +890,12 @@
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-1 font-medium">Pantauan aktivitas lapangan yang butuh tindakan.</p>
                             </div>
-                            {!isBossView && (
-                                <button onClick={() => setActiveTab('jadwal')} className="text-xs font-bold text-red-600 hover:text-red-700 flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg transition-colors border border-red-100 active:scale-95">Lihat Semua <i className="fa-solid fa-arrow-right"></i></button>
-                            )}
+                            <div className="px-4 py-2 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2 shadow-sm">
+                                <button onClick={() => setDashTimeFilter('semua')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua</button>
+                                <button onClick={() => setDashTimeFilter('hari_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
+                                <button onClick={() => setDashTimeFilter('minggu_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
+                                <button onClick={() => setDashTimeFilter('bulan_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'bulan_ini' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>Bulan Ini</button>
+                            </div>
                         </div>
                         <div className="divide-y divide-slate-100 bg-slate-50">
                             
@@ -912,7 +943,6 @@
 
                 let filteredOrders = orders.filter(o => jadwalTab === 'aktif' ? isOrderActive(o.status) || o.status.includes('Komplain') : ['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain'));
                 
-                // Custom View Filters
                 if (jadwalTab === 'aktif') {
                     if (jadwalViewMode === 'hari_ini') {
                         filteredOrders = filteredOrders.filter(o => o.date === todayStr);
@@ -928,6 +958,16 @@
 
                 if (jadwalFilterTech) filteredOrders = filteredOrders.filter(o => o.technician_name === jadwalFilterTech);
                 if (jadwalFilterStatus) filteredOrders = filteredOrders.filter(o => o.status === jadwalFilterStatus);
+                
+                if (jadwalSearch) {
+                    const s = jadwalSearch.toLowerCase();
+                    filteredOrders = filteredOrders.filter(o => 
+                        o.customer.toLowerCase().includes(s) || 
+                        o.order_id_text.toLowerCase().includes(s) ||
+                        o.unit.toLowerCase().includes(s) ||
+                        (o.phone && o.phone.includes(s))
+                    );
+                }
 
                 return (
                 <div className="space-y-6 fade-in max-w-6xl mx-auto">
@@ -948,7 +988,11 @@
                                 <button onClick={() => setJadwalTab('arsip')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'arsip' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Arsip Selesai</button>
                             </div>
                             
-                            <div className="flex gap-2 w-full sm:w-auto">
+                            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                                <div className="flex bg-white border border-slate-200 rounded-lg px-2 items-center flex-1 sm:w-auto focus-within:border-red-400">
+                                    <i className="fa-solid fa-search text-slate-400 text-xs ml-1"></i>
+                                    <input type="text" value={jadwalSearch} onChange={e => setJadwalSearch(e.target.value)} placeholder="Cari klien, unit, atau ID..." className="p-2 text-xs font-bold text-slate-600 outline-none w-full bg-transparent" />
+                                </div>
                                 <select value={jadwalFilterTech} onChange={e => setJadwalFilterTech(e.target.value)} className="flex-1 sm:w-32 bg-white border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-600 outline-none focus:border-red-400">
                                     <option value="">Semua Teknisi</option>
                                     <option value="Belum Ditugaskan">Belum Ditugaskan</option>
@@ -1055,6 +1099,8 @@
             };
 
             const renderGaleri = () => {
+                const displayedGaleri = orders.filter(o => galeriTab === 'baru' ? !o.is_media_downloaded : o.is_media_downloaded);
+
                 return (
                     <div className="space-y-6 fade-in max-w-6xl mx-auto">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1064,13 +1110,18 @@
                             </div>
                         </div>
 
-                        <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 shadow-sm bg-blue-50/50">
+                        <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-4 shadow-sm bg-blue-50/50">
                             <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage Folder</p>
                             <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung dan didownload terpisah, atau ditarik semua menggunakan tombol Download ZIP.</p>
                         </div>
 
+                        <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200 mb-4 w-fit">
+                            <button onClick={() => setGaleriTab('baru')} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${galeriTab === 'baru' ? 'bg-blue-50 text-blue-700 shadow-sm border border-blue-100' : 'text-slate-500 hover:text-slate-700'}`}>Belum Diunduh</button>
+                            <button onClick={() => setGaleriTab('arsip')} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${galeriTab === 'arsip' ? 'bg-slate-100 text-slate-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>Arsip (Sudah Diunduh)</button>
+                        </div>
+
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                            {orders.map(o => (
+                            {displayedGaleri.map(o => (
                                 <div key={o.id} onClick={() => { setSelectedGalleryFolder(o); fetchOrderFiles(o.id); }} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden">
                                     {o.is_media_downloaded && (
                                         <div className="absolute top-3 right-3 text-emerald-500 bg-emerald-50 px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider border border-emerald-200 shadow-sm z-10">
@@ -1099,10 +1150,10 @@
                                     </div>
                                 </div>
                             ))}
-                            {orders.length === 0 && (
+                            {displayedGaleri.length === 0 && (
                                 <div className="col-span-full p-12 text-center text-slate-400">
                                     <i className="fa-regular fa-folder-open text-4xl mb-3 block"></i>
-                                    <p className="text-sm font-bold">Belum ada folder dokumentasi.</p>
+                                    <p className="text-sm font-bold">Belum ada folder dokumentasi di tab ini.</p>
                                 </div>
                             )}
                         </div>
@@ -1257,7 +1308,7 @@
                 
                 const upcomingOrders = myOrders.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
                 const overdueOrders = myOrders.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
-
+                
                 const todayDateObj = new Date();
                 const dayOfWeek = todayDateObj.getDay(); 
                 const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
@@ -1279,6 +1330,7 @@
 
                 const renderTechOrderCard = (o) => {
                     const finalWaPhone = getCleanPhone(o.phone);
+                    const mapsHref = o.maps_link ? o.maps_link : `https://maps.google.com/?q=${encodeURIComponent(o.address)}`;
                     return (
                         <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
                             <div className={`absolute top-0 left-0 w-1.5 h-full ${
@@ -1314,7 +1366,7 @@
                                     <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
                                         <i className="fa-regular fa-copy text-lg"></i>
                                     </button>
-                                    <a href={`https://maps.google.com/?q=${encodeURIComponent(o.address)}`} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
+                                    <a href={mapsHref} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
                                         <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
                                     </a>
                                 </div>
@@ -1460,8 +1512,22 @@
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Estimasi Waktu Datang</label>
                                                     <input type="text" name="time_estimate" defaultValue={selectedOrder.time_estimate} placeholder="Cth: 08:00 - 10:00" className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
+                                                
+                                                <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tipe Alat (Unit)</label>
+                                                    <input type="text" name="unit" defaultValue={selectedOrder.unit} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                </div>
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat</label>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Detail Kendala</label>
+                                                    <textarea name="issue" rows="2" defaultValue={selectedOrder.issue} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
+                                                </div>
+
+                                                <div className="sm:col-span-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Link Google Maps (Opsional)</label>
+                                                    <input type="url" name="maps_link" defaultValue={selectedOrder.maps_link} placeholder="Cth: https://maps.app.goo.gl/..." className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400" />
+                                                </div>
+                                                <div className="sm:col-span-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat Teks</label>
                                                     <textarea name="address" rows="2" defaultValue={selectedOrder.address} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
                                                 </div>
                                             </div>
@@ -1499,7 +1565,7 @@
                                                 {orderFiles.length > 0 && (
                                                     <div className="flex gap-3 overflow-x-auto pb-3 mb-3 border-b border-slate-100">
                                                         {orderFiles.map((file, i) => (
-                                                            <div key={i} className="w-16 h-16 shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-slate-100">
+                                                            <div key={i} className="w-16 h-16 shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-slate-100 relative">
                                                                 {file.metadata?.mimetype?.startsWith('video') ? (
                                                                     <video src={file.publicUrl} className="w-full h-full object-cover" />
                                                                 ) : (
@@ -1624,7 +1690,8 @@
                                             <textarea name="issue" required placeholder="Detail kendala..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none"></textarea>
                                         </div>
                                     </div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Alamat Lokasi</label><textarea name="address" required placeholder="Alamat lengkap..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none"></textarea></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Link Google Maps (Opsional)</label><input type="url" name="maps_link" placeholder="Share lock URL..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Alamat Lokasi (Teks)</label><textarea name="address" required placeholder="Alamat lengkap..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none"></textarea></div>
                                     <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tugaskan Teknisi</label>
                                         <select name="technician" className="w-full border-2 border-slate-200 p-3.5 rounded-xl font-bold outline-none focus:border-red-500 cursor-pointer bg-slate-50 text-slate-800">
                                             <option value="">-- Belum Ditugaskan --</option>
@@ -1643,7 +1710,7 @@
                         </div>
                     )}
 
-                    {/* Modal Pop-up Galeri Folder (Media Viewer) */}
+                    {/* Modal Pop-up Galeri Folder */}
                     {selectedGalleryFolder && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md fade-in">
                             <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
