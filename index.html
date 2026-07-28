@@ -2,7 +2,8 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- Meta viewport diubah: Menghapus batasan user-scalable agar Invoice bisa di-zoom di HP -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Servisika Management App</title>
     
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
@@ -90,16 +91,29 @@
             const [technicians, setTechnicians] = useState([]);
             const [orders, setOrders] = useState([]);
 
-            const [dashFilter, setDashFilter] = useState(null); 
-            const [dashTimeFilter, setDashTimeFilter] = useState('semua');
+            const [dashFilter, setDashFilter] = useState(() => localStorage.getItem('svk_dashFilter') || null); 
+            const [dashTimeFilter, setDashTimeFilter] = useState(() => localStorage.getItem('svk_dashTimeFilter') || 'semua');
             
-            const [jadwalTab, setJadwalTab] = useState('aktif'); 
-            const [jadwalViewMode, setJadwalViewMode] = useState('semua'); 
-            const [jadwalFilterTech, setJadwalFilterTech] = useState('');
-            const [jadwalFilterStatus, setJadwalFilterStatus] = useState('');
-            const [jadwalSearch, setJadwalSearch] = useState('');
+            const [jadwalTab, setJadwalTab] = useState(() => localStorage.getItem('svk_jadwalTab') || 'aktif'); 
+            const [jadwalViewMode, setJadwalViewMode] = useState(() => localStorage.getItem('svk_jadwalViewMode') || 'semua'); 
+            const [jadwalFilterTech, setJadwalFilterTech] = useState(() => localStorage.getItem('svk_jadwalFilterTech') || '');
+            const [jadwalFilterStatus, setJadwalFilterStatus] = useState(() => localStorage.getItem('svk_jadwalFilterStatus') || '');
+            const [jadwalSearch, setJadwalSearch] = useState(() => localStorage.getItem('svk_jadwalSearch') || '');
             
-            const [financeFilter, setFinanceFilter] = useState({ search: '', category: 'Semua', startDate: '', endDate: '' });
+            const [financeFilter, setFinanceFilter] = useState(() => {
+                const saved = localStorage.getItem('svk_financeFilter');
+                return saved ? JSON.parse(saved) : { search: '', category: 'Semua', startDate: '', endDate: '' };
+            });
+
+            useEffect(() => { if(dashFilter) localStorage.setItem('svk_dashFilter', dashFilter); else localStorage.removeItem('svk_dashFilter'); }, [dashFilter]);
+            useEffect(() => { localStorage.setItem('svk_dashTimeFilter', dashTimeFilter); }, [dashTimeFilter]);
+            useEffect(() => { localStorage.setItem('svk_jadwalTab', jadwalTab); }, [jadwalTab]);
+            useEffect(() => { localStorage.setItem('svk_jadwalViewMode', jadwalViewMode); }, [jadwalViewMode]);
+            useEffect(() => { localStorage.setItem('svk_jadwalFilterTech', jadwalFilterTech); }, [jadwalFilterTech]);
+            useEffect(() => { localStorage.setItem('svk_jadwalFilterStatus', jadwalFilterStatus); }, [jadwalFilterStatus]);
+            useEffect(() => { localStorage.setItem('svk_jadwalSearch', jadwalSearch); }, [jadwalSearch]);
+            useEffect(() => { localStorage.setItem('svk_financeFilter', JSON.stringify(financeFilter)); }, [financeFilter]);
+
             const [showOrderModal, setShowOrderModal] = useState(false);
             const [selectedOrder, setSelectedOrder] = useState(null);
             const [modalParts, setModalParts] = useState([]); 
@@ -109,7 +123,7 @@
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
             const [showTechModal, setShowTechModal] = useState(false);
             
-            const [galeriTab, setGaleriTab] = useState('baru'); // 'baru', 'arsip'
+            const [galeriTab, setGaleriTab] = useState('baru');
             const [selectedGalleryFolder, setSelectedGalleryFolder] = useState(null);
             
             const [isSaving, setIsSaving] = useState(false);
@@ -363,27 +377,28 @@
                 const total = parts.reduce((s, p) => s + (p.is_estimate ? 0 : Number(p.price)), 0);
                 
                 return (
-                    <div className="bg-white p-4 sm:p-8 max-w-3xl mx-auto rounded-xl shadow-lg border border-slate-100 text-slate-800" id="printable-invoice">
-                        <div className="flex flex-col sm:flex-row justify-between border-b-2 border-red-600 pb-4 sm:pb-6 mb-6 sm:mb-8 gap-4">
+                    <div className="w-full overflow-x-auto pb-4">
+                    <div className="bg-white p-8 w-[800px] min-w-[800px] mx-auto rounded-xl shadow-lg border border-slate-100 text-slate-800" id="printable-invoice">
+                        <div className="flex flex-row justify-between border-b-2 border-red-600 pb-6 mb-8 gap-4">
                             <div>
-                                <h1 className="text-3xl sm:text-4xl font-black text-red-700 m-0 tracking-tighter">SERVISIKA</h1>
-                                <p className="text-slate-500 text-xs sm:text-sm mt-1 font-medium">Layanan Servis Alat Fitness Profesional</p>
+                                <h1 className="text-4xl font-black text-red-700 m-0 tracking-tighter">SERVISIKA</h1>
+                                <p className="text-slate-500 text-sm mt-1 font-medium">Layanan Servis Alat Fitness Profesional</p>
                             </div>
-                            <div className="sm:text-right">
-                                <h2 className="text-xl sm:text-2xl font-black text-slate-800 m-0 tracking-tight">INVOICE / TAGIHAN</h2>
-                                <p className="text-xs sm:text-sm font-bold mt-2">No: <span className="text-slate-600 font-medium">{order.order_id_text}</span></p>
-                                <p className="text-xs sm:text-sm font-bold">Tanggal: <span className="text-slate-600 font-medium">{new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</span></p>
+                            <div className="text-right">
+                                <h2 className="text-2xl font-black text-slate-800 m-0 tracking-tight">INVOICE / TAGIHAN</h2>
+                                <p className="text-sm font-bold mt-2">No: <span className="text-slate-600 font-medium">{order.order_id_text}</span></p>
+                                <p className="text-sm font-bold">Tanggal: <span className="text-slate-600 font-medium">{new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</span></p>
                             </div>
                         </div>
                         
-                        <div className="flex flex-col sm:flex-row justify-between mb-6 sm:mb-8 text-sm gap-4 sm:gap-6">
+                        <div className="flex flex-row justify-between mb-8 text-sm gap-6">
                             <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
                                 <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Klien (Ditagihkan Kepada):</p>
                                 <p className="font-black text-lg text-slate-800">{order.customer}</p>
-                                <p className="text-slate-600 mt-1 leading-relaxed text-xs sm:text-sm">{order.address}</p>
-                                <p className="text-slate-600 mt-2 font-medium text-xs sm:text-sm"><i className="fa-brands fa-whatsapp text-emerald-500"></i> {order.phone}</p>
+                                <p className="text-slate-600 mt-1 leading-relaxed text-sm">{order.address}</p>
+                                <p className="text-slate-600 mt-2 font-medium text-sm"><i className="fa-brands fa-whatsapp text-emerald-500"></i> {order.phone}</p>
                             </div>
-                            <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100 sm:text-right">
+                            <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100 text-right">
                                 <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Detail Pengerjaan:</p>
                                 <p className="font-bold text-slate-800 text-base">{order.unit}</p>
                                 <p className="text-slate-600 mt-1 text-xs">Teknisi: <span className="font-bold">{order.technician_name}</span></p>
@@ -392,49 +407,47 @@
                         </div>
 
                         <div className="rounded-xl overflow-hidden border border-slate-200 mb-8 w-full">
-                            <div className="table-scroll w-full overflow-x-auto">
-                                <table className="w-full text-left text-sm min-w-[500px]">
-                                    <thead>
-                                        <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
-                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs">Deskripsi (Jasa & Sparepart)</th>
-                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-center w-24">Garansi</th>
-                                            <th className="p-3 sm:p-4 font-black uppercase tracking-wider text-xs text-right w-40">Harga (Rp)</th>
+                            <table className="w-full text-left text-sm">
+                                <thead>
+                                    <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
+                                        <th className="p-4 font-black uppercase tracking-wider text-xs">Deskripsi (Jasa & Sparepart)</th>
+                                        <th className="p-4 font-black uppercase tracking-wider text-xs text-center w-24">Garansi</th>
+                                        <th className="p-4 font-black uppercase tracking-wider text-xs text-right w-40">Harga (Rp)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {parts.map((p, i) => (
+                                        <tr key={i} className="border-b border-slate-100 last:border-0 bg-white">
+                                            <td className="p-4 font-bold text-slate-800 text-sm">
+                                                {p.name}
+                                                {p.is_estimate && <span className="ml-2 bg-orange-100 text-orange-700 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Estimasi</span>}
+                                            </td>
+                                            <td className="p-4 text-center text-slate-500 font-medium text-sm">{p.warranty_months > 0 ? `${p.warranty_months} Bln` : '-'}</td>
+                                            <td className="p-4 text-right font-black text-slate-800 text-sm whitespace-nowrap">
+                                                {p.is_estimate ? (
+                                                    <span className="text-orange-600 text-xs">{p.estimate_text || 'Menunggu Info'}</span>
+                                                ) : (
+                                                    formatRupiah(p.price)
+                                                )}
+                                            </td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        {parts.map((p, i) => (
-                                            <tr key={i} className="border-b border-slate-100 last:border-0 bg-white">
-                                                <td className="p-3 sm:p-4 font-bold text-slate-800 text-xs sm:text-sm">
-                                                    {p.name}
-                                                    {p.is_estimate && <span className="ml-2 bg-orange-100 text-orange-700 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Estimasi</span>}
-                                                </td>
-                                                <td className="p-3 sm:p-4 text-center text-slate-500 font-medium text-xs sm:text-sm">{p.warranty_months > 0 ? `${p.warranty_months} Bln` : '-'}</td>
-                                                <td className="p-3 sm:p-4 text-right font-black text-slate-800 text-sm whitespace-nowrap">
-                                                    {p.is_estimate ? (
-                                                        <span className="text-orange-600 text-xs">{p.estimate_text || 'Menunggu Info'}</span>
-                                                    ) : (
-                                                        formatRupiah(p.price)
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-                                        <tr className="bg-slate-800 text-white">
-                                            <td colSpan="2" className="p-4 sm:p-5 text-right font-black uppercase tracking-wider text-xs sm:text-sm">TOTAL TAGIHAN:</td>
-                                            <td className="p-4 sm:p-5 text-right font-black text-lg sm:text-xl whitespace-nowrap">{formatRupiah(total)}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                                    ))}
+                                    <tr className="bg-slate-800 text-white">
+                                        <td colSpan="2" className="p-5 text-right font-black uppercase tracking-wider text-sm">TOTAL TAGIHAN:</td>
+                                        <td className="p-5 text-right font-black text-xl whitespace-nowrap">{formatRupiah(total)}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row justify-between gap-8 mt-4">
-                            <div className="flex-1 relative order-2 sm:order-1">
+                        <div className="flex flex-row justify-between gap-8 mt-4">
+                            <div className="flex-1 relative">
                                 <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">Informasi Pembayaran</p>
                                 <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
                                 <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3">
                                     <div>
-                                        <p className="font-black text-blue-800 text-lg sm:text-xl tracking-wider mb-0.5">638-042-8651 <span className="text-xs sm:text-sm text-blue-600 font-bold">(BCA)</span></p>
-                                        <p className="text-xs sm:text-sm font-bold text-slate-600">A.n: Saepul Anwar</p>
+                                        <p className="font-black text-blue-800 text-xl tracking-wider mb-0.5">638-042-8651 <span className="text-sm text-blue-600 font-bold">(BCA)</span></p>
+                                        <p className="text-sm font-bold text-slate-600">A.n: Saepul Anwar</p>
                                     </div>
                                     {isStandalone && (
                                         <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
@@ -444,21 +457,22 @@
                                 </div>
                             </div>
                             
-                            <div className="flex-1 flex flex-col items-center sm:items-end justify-end pt-2 text-center sm:text-right order-1 sm:order-2 relative h-32">
-                                <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
-                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-48 sm:w-56 object-contain mix-blend-multiply opacity-90 absolute bottom-4 sm:right-0 z-0 pointer-events-none" />
-                                <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center sm:text-right z-10 relative mt-auto">Admin Servisika</p>
+                            <div className="flex-1 flex flex-col items-end justify-end pt-2 text-right relative h-32">
+                                <p className="text-sm font-bold text-slate-500 z-10 relative w-40 text-center">Hormat Kami,</p>
+                                <img src="https://i.imghippo.com/files/xW8261yx.png" alt="Tanda Tangan Servisika" className="w-48 object-contain mix-blend-multiply absolute bottom-4 right-0 z-0 pointer-events-none" />
+                                <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center z-10 relative mt-auto">Admin Servisika</p>
                             </div>
                         </div>
                         
                         {isStandalone && (
                             <div className="mt-12 text-center no-print border-t border-slate-100 pt-8">
-                                <button onClick={() => window.print()} className="bg-red-600 hover:bg-red-700 text-white px-8 py-3.5 rounded-xl font-bold shadow-xl shadow-red-600/20 transition-transform active:scale-95 flex items-center justify-center gap-2 mx-auto w-full sm:w-auto">
+                                <button onClick={() => window.print()} className="bg-red-600 hover:bg-red-700 text-white px-8 py-3.5 rounded-xl font-bold shadow-xl shadow-red-600/20 transition-transform active:scale-95 flex items-center justify-center gap-2 mx-auto w-auto">
                                     <i className="fa-solid fa-print"></i> Cetak / Simpan PDF
                                 </button>
                                 <p className="text-xs text-slate-400 mt-4 font-medium max-w-sm mx-auto">Gunakan fitur Print browser Anda dan pilih "Save as PDF" (Simpan sebagai PDF) untuk menyimpan tagihan.</p>
                             </div>
                         )}
+                    </div>
                     </div>
                 );
             };
@@ -482,7 +496,6 @@
                 const technician_name = formData.get('technician') || selectedOrder.technician_name;
                 const time_estimate = formData.get('time_estimate') || selectedOrder.time_estimate || '';
                 
-                // Fields from Modal Edit
                 const unit = formData.get('unit') || selectedOrder.unit;
                 const issue = formData.get('issue') || selectedOrder.issue;
                 const maps_link = formData.get('maps_link') || selectedOrder.maps_link || '';
@@ -646,9 +659,7 @@
             if (publicInvoiceOrder) {
                 return (
                     <div className="min-h-screen bg-slate-100 p-2 sm:p-8 flex items-start justify-center fade-in overflow-y-auto">
-                        <div className="w-full max-w-3xl my-auto">
-                            <InvoiceTemplate order={publicInvoiceOrder} isStandalone={true} />
-                        </div>
+                        <InvoiceTemplate order={publicInvoiceOrder} isStandalone={true} />
                     </div>
                 );
             }
@@ -1341,7 +1352,7 @@
                             }`}></div>
                             <div className="p-5 pb-4">
                                 <div className="flex justify-between items-start mb-4">
-                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
+                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'short'})}</span>
                                     <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
                                         o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
                                         o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
