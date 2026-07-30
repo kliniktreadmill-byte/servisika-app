@@ -2,7 +2,6 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <!-- Meta viewport diubah: Menghapus batasan user-scalable agar Invoice bisa di-zoom di HP -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Servisika Management App</title>
     
@@ -94,6 +93,10 @@
             const [dashFilter, setDashFilter] = useState(() => localStorage.getItem('svk_dashFilter') || null); 
             const [dashTimeFilter, setDashTimeFilter] = useState(() => localStorage.getItem('svk_dashTimeFilter') || 'semua');
             
+            // Global Date Filter
+            const [globalStartDate, setGlobalStartDate] = useState(() => localStorage.getItem('svk_globalStartDate') || '');
+            const [globalEndDate, setGlobalEndDate] = useState(() => localStorage.getItem('svk_globalEndDate') || '');
+
             const [jadwalTab, setJadwalTab] = useState(() => localStorage.getItem('svk_jadwalTab') || 'aktif'); 
             const [jadwalViewMode, setJadwalViewMode] = useState(() => localStorage.getItem('svk_jadwalViewMode') || 'semua'); 
             const [jadwalFilterTech, setJadwalFilterTech] = useState(() => localStorage.getItem('svk_jadwalFilterTech') || '');
@@ -102,11 +105,14 @@
             
             const [financeFilter, setFinanceFilter] = useState(() => {
                 const saved = localStorage.getItem('svk_financeFilter');
-                return saved ? JSON.parse(saved) : { search: '', category: 'Semua', startDate: '', endDate: '' };
+                return saved ? JSON.parse(saved) : { search: '', type: 'Semua', startDate: '', endDate: '' };
             });
 
+            // Sync states to localStorage
             useEffect(() => { if(dashFilter) localStorage.setItem('svk_dashFilter', dashFilter); else localStorage.removeItem('svk_dashFilter'); }, [dashFilter]);
             useEffect(() => { localStorage.setItem('svk_dashTimeFilter', dashTimeFilter); }, [dashTimeFilter]);
+            useEffect(() => { localStorage.setItem('svk_globalStartDate', globalStartDate); }, [globalStartDate]);
+            useEffect(() => { localStorage.setItem('svk_globalEndDate', globalEndDate); }, [globalEndDate]);
             useEffect(() => { localStorage.setItem('svk_jadwalTab', jadwalTab); }, [jadwalTab]);
             useEffect(() => { localStorage.setItem('svk_jadwalViewMode', jadwalViewMode); }, [jadwalViewMode]);
             useEffect(() => { localStorage.setItem('svk_jadwalFilterTech', jadwalFilterTech); }, [jadwalFilterTech]);
@@ -349,64 +355,78 @@
                 }
             };
 
-            const kasBerjalan = transactions.filter(t => t.category === 'Kas Berjalan').reduce((sum, t) => t.type === 'in' ? sum + Number(t.amount) : sum - Number(t.amount), 0);
-            const kasTetap = transactions.filter(t => t.category === 'Kas Tetap').reduce((sum, t) => t.type === 'in' ? sum + Number(t.amount) : sum - Number(t.amount), 0);
-
             const filteredTransactions = useMemo(() => {
                 return transactions.filter(trx => {
                     const matchSearch = trx.description.toLowerCase().includes(financeFilter.search.toLowerCase());
-                    const matchCategory = financeFilter.category === 'Semua' || trx.category === financeFilter.category;
+                    const matchType = financeFilter.type === 'Semua' || trx.type === financeFilter.type;
                     
                     let matchStart = true;
                     let matchEnd = true;
                     if (financeFilter.startDate) {
-                        matchStart = new Date(trx.date) >= new Date(financeFilter.startDate);
+                        matchStart = trx.date >= financeFilter.startDate;
                     }
                     if (financeFilter.endDate) {
-                        matchEnd = new Date(trx.date) <= new Date(financeFilter.endDate);
+                        matchEnd = trx.date <= financeFilter.endDate;
                     }
                     
-                    return matchSearch && matchCategory && matchStart && matchEnd;
+                    return matchSearch && matchType && matchStart && matchEnd;
                 });
             }, [transactions, financeFilter]);
+
+            // Hitung saldo absolut kas untuk ditampilkan di kartu depan (tidak terpengaruh tanggal filter, kecuali diminta)
+            // Namun karena user minta "mengikuti filter", kita akan buat perhitungannya responsif terhadap filter tanggal
+            const kasBerjalan = useMemo(() => {
+                return transactions
+                    .filter(t => t.category === 'Kas Berjalan')
+                    .filter(t => (!financeFilter.startDate || t.date >= financeFilter.startDate) && (!financeFilter.endDate || t.date <= financeFilter.endDate))
+                    .reduce((sum, t) => t.type === 'in' ? sum + Number(t.amount) : sum - Number(t.amount), 0);
+            }, [transactions, financeFilter.startDate, financeFilter.endDate]);
+
+            const kasTetap = useMemo(() => {
+                return transactions
+                    .filter(t => t.category === 'Kas Tetap')
+                    .filter(t => (!financeFilter.startDate || t.date >= financeFilter.startDate) && (!financeFilter.endDate || t.date <= financeFilter.endDate))
+                    .reduce((sum, t) => t.type === 'in' ? sum + Number(t.amount) : sum - Number(t.amount), 0);
+            }, [transactions, financeFilter.startDate, financeFilter.endDate]);
 
             const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
 
             const InvoiceTemplate = ({ order, isStandalone = false }) => {
                 const parts = order.order_parts || [];
+                // Hitung total. Jika diskon (harga < 0), ditambahkan langsung (karena angkanya sudah negatif)
                 const total = parts.reduce((s, p) => s + (p.is_estimate ? 0 : Number(p.price)), 0);
                 
                 return (
-                    <div className="w-full overflow-x-auto pb-4">
-                    <div className="bg-white p-8 w-[800px] min-w-[800px] mx-auto rounded-xl shadow-lg border border-slate-100 text-slate-800" id="printable-invoice">
-                        <div className="flex flex-row justify-between border-b-2 border-red-600 pb-6 mb-8 gap-4">
+                    <div className="w-full max-w-[800px] mx-auto bg-slate-100 sm:bg-transparent sm:p-4">
+                    <div className="bg-white p-6 sm:p-10 mx-auto sm:rounded-2xl shadow-xl sm:border border-slate-200 text-slate-800" style={{ width: '100%', maxWidth: '800px' }} id="printable-invoice">
+                        <div className="flex flex-row justify-between border-b-[3px] border-red-600 pb-6 mb-8 gap-4 items-end">
                             <div>
-                                <h1 className="text-4xl font-black text-red-700 m-0 tracking-tighter">SERVISIKA</h1>
-                                <p className="text-slate-500 text-sm mt-1 font-medium">Layanan Servis Alat Fitness Profesional</p>
+                                <h1 className="text-3xl sm:text-4xl font-black text-red-700 m-0 tracking-tighter">SERVISIKA</h1>
+                                <p className="text-slate-500 text-xs sm:text-sm mt-1 font-bold">Layanan Servis Alat Fitness Profesional</p>
                             </div>
                             <div className="text-right">
-                                <h2 className="text-2xl font-black text-slate-800 m-0 tracking-tight">INVOICE / TAGIHAN</h2>
-                                <p className="text-sm font-bold mt-2">No: <span className="text-slate-600 font-medium">{order.order_id_text}</span></p>
-                                <p className="text-sm font-bold">Tanggal: <span className="text-slate-600 font-medium">{new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</span></p>
+                                <h2 className="text-xl sm:text-2xl font-black text-slate-800 m-0 tracking-tight">INVOICE / TAGIHAN</h2>
+                                <p className="text-xs sm:text-sm font-bold mt-2">No: <span className="text-slate-600 font-medium">{order.order_id_text}</span></p>
+                                <p className="text-xs sm:text-sm font-bold">Tanggal: <span className="text-slate-600 font-medium">{new Date(order.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</span></p>
                             </div>
                         </div>
                         
-                        <div className="flex flex-row justify-between mb-8 text-sm gap-6">
-                            <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                        <div className="flex flex-col sm:flex-row justify-between mb-8 text-sm gap-6">
+                            <div className="flex-1 bg-slate-50 p-5 rounded-2xl border border-slate-100">
                                 <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Klien (Ditagihkan Kepada):</p>
-                                <p className="font-black text-lg text-slate-800">{order.customer}</p>
-                                <p className="text-slate-600 mt-1 leading-relaxed text-sm">{order.address}</p>
-                                <p className="text-slate-600 mt-2 font-medium text-sm"><i className="fa-brands fa-whatsapp text-emerald-500"></i> {order.phone}</p>
+                                <p className="font-black text-lg text-slate-800 leading-tight">{order.customer}</p>
+                                <p className="text-slate-600 mt-2 leading-relaxed text-xs sm:text-sm">{order.address}</p>
+                                <p className="text-slate-600 mt-3 font-bold text-xs sm:text-sm flex items-center gap-2"><i className="fa-brands fa-whatsapp text-emerald-500 text-lg"></i> {order.phone}</p>
                             </div>
-                            <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100 text-right">
+                            <div className="flex-1 bg-slate-50 p-5 rounded-2xl border border-slate-100 sm:text-right flex flex-col sm:items-end justify-center">
                                 <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Detail Pengerjaan:</p>
                                 <p className="font-bold text-slate-800 text-base">{order.unit}</p>
-                                <p className="text-slate-600 mt-1 text-xs">Teknisi: <span className="font-bold">{order.technician_name}</span></p>
+                                <p className="text-slate-600 mt-2 text-xs">Teknisi: <span className="font-bold">{order.technician_name}</span></p>
                                 <p className="text-slate-600 mt-1 text-xs">Status: <span className="font-bold uppercase text-red-600">{order.status}</span></p>
                             </div>
                         </div>
 
-                        <div className="rounded-xl overflow-hidden border border-slate-200 mb-8 w-full">
+                        <div className="rounded-2xl overflow-hidden border border-slate-200 mb-8 w-full">
                             <table className="w-full text-left text-sm">
                                 <thead>
                                     <tr className="bg-slate-100 text-slate-600 border-b border-slate-200">
@@ -418,21 +438,22 @@
                                 <tbody>
                                     {parts.map((p, i) => (
                                         <tr key={i} className="border-b border-slate-100 last:border-0 bg-white">
-                                            <td className="p-4 font-bold text-slate-800 text-sm">
+                                            <td className={`p-4 font-bold text-sm ${p.price < 0 ? 'text-red-600' : 'text-slate-800'}`}>
                                                 {p.name}
                                                 {p.is_estimate && <span className="ml-2 bg-orange-100 text-orange-700 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Estimasi</span>}
+                                                {p.price < 0 && <span className="ml-2 bg-red-100 text-red-700 text-[9px] px-1.5 py-0.5 rounded font-black uppercase">Diskon</span>}
                                             </td>
                                             <td className="p-4 text-center text-slate-500 font-medium text-sm">{p.warranty_months > 0 ? `${p.warranty_months} Bln` : '-'}</td>
-                                            <td className="p-4 text-right font-black text-slate-800 text-sm whitespace-nowrap">
+                                            <td className={`p-4 text-right font-black text-sm whitespace-nowrap ${p.price < 0 ? 'text-red-600' : 'text-slate-800'}`}>
                                                 {p.is_estimate ? (
                                                     <span className="text-orange-600 text-xs">{p.estimate_text || 'Menunggu Info'}</span>
                                                 ) : (
-                                                    formatRupiah(p.price)
+                                                    p.price < 0 ? `- ${formatRupiah(Math.abs(p.price))}` : formatRupiah(p.price)
                                                 )}
                                             </td>
                                         </tr>
                                     ))}
-                                    <tr className="bg-slate-800 text-white">
+                                    <tr className="bg-slate-900 text-white">
                                         <td colSpan="2" className="p-5 text-right font-black uppercase tracking-wider text-sm">TOTAL TAGIHAN:</td>
                                         <td className="p-5 text-right font-black text-xl whitespace-nowrap">{formatRupiah(total)}</td>
                                     </tr>
@@ -440,36 +461,42 @@
                             </table>
                         </div>
 
-                        <div className="flex flex-row justify-between gap-8 mt-4">
-                            <div className="flex-1 relative">
+                        <div className="flex justify-between items-end gap-8 mt-4">
+                            <div className="flex-1">
                                 <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">Informasi Pembayaran</p>
                                 <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3">
-                                    <div>
-                                        <p className="font-black text-blue-800 text-xl tracking-wider mb-0.5">638-042-8651 <span className="text-sm text-blue-600 font-bold">(BCA)</span></p>
-                                        <p className="text-sm font-bold text-slate-600">A.n: Saepul Anwar</p>
-                                    </div>
-                                    {isStandalone && (
-                                        <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
-                                            <i className="fa-regular fa-copy"></i> Salin Rekening
-                                        </button>
-                                    )}
+                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 max-w-sm">
+                                    <p className="font-black text-blue-800 text-xl tracking-wider mb-1">638-042-8651 <span className="text-xs text-blue-600 font-bold">(BCA)</span></p>
+                                    <p className="text-xs font-bold text-slate-600">A.n: Saepul Anwar</p>
                                 </div>
+                                {isStandalone && (
+                                    <button onClick={() => copyToClipboard('6380428651', 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-sm active:scale-95 w-fit mt-3">
+                                        <i className="fa-regular fa-copy"></i> Salin Rekening
+                                    </button>
+                                )}
                             </div>
                             
-                            <div className="flex-1 flex flex-col items-end justify-end pt-2 text-right relative h-40">
-                                <p className="text-sm font-bold text-slate-500 z-10 relative w-40 text-center">Hormat Kami,</p>
-                                <img src="https://i.imghippo.com/files/aEO3285DJU.png" alt="Tanda Tangan Servisika" className="w-72 scale-150 object-contain mix-blend-multiply absolute -bottom-6 -right-14 z-0 pointer-events-none" />
-                                <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-40 text-center z-10 relative mt-auto">Admin Servisika</p>
+                            <div className="flex-1 flex justify-end pt-2 mt-4">
+                                <div className="relative w-40 h-40 flex flex-col justify-between items-center">
+                                    <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
+                                    
+                                    <img 
+                                        src="https://i.imghippo.com/files/aEO3285DJU.png" 
+                                        alt="Tanda Tangan Servisika" 
+                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" 
+                                    />
+                                    
+                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">Admin Servisika</p>
+                                </div>
                             </div>
                         </div>
                         
                         {isStandalone && (
-                            <div className="mt-12 text-center no-print border-t border-slate-100 pt-8">
-                                <button onClick={() => window.print()} className="bg-red-600 hover:bg-red-700 text-white px-8 py-3.5 rounded-xl font-bold shadow-xl shadow-red-600/20 transition-transform active:scale-95 flex items-center justify-center gap-2 mx-auto w-auto">
+                            <div className="mt-12 text-center no-print border-t border-slate-100 pt-8 pb-8">
+                                <button onClick={() => window.print()} className="bg-red-600 hover:bg-red-700 text-white px-10 py-4 rounded-2xl font-bold shadow-xl shadow-red-600/30 transition-transform active:scale-95 flex items-center justify-center gap-2 mx-auto w-full sm:w-auto text-lg">
                                     <i className="fa-solid fa-print"></i> Cetak / Simpan PDF
                                 </button>
-                                <p className="text-xs text-slate-400 mt-4 font-medium max-w-sm mx-auto">Gunakan fitur Print browser Anda dan pilih "Save as PDF" (Simpan sebagai PDF) untuk menyimpan tagihan.</p>
+                                <p className="text-xs text-slate-400 mt-4 font-medium max-w-sm mx-auto">Gunakan fitur Print browser Anda dan pilih "Save as PDF" untuk menyimpan tagihan.</p>
                             </div>
                         )}
                     </div>
@@ -504,14 +531,20 @@
                     await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name, time_estimate, unit, issue, maps_link }).eq('id', selectedOrder.id);
                     
                     await supabase.from('order_parts').delete().eq('order_id', selectedOrder.id);
-                    const partsToInsert = modalParts.filter(p => p.name.trim() !== '').map(p => ({
-                        order_id: selectedOrder.id,
-                        name: p.name,
-                        price: parseCurrency(p.price),
-                        warranty_months: Number(p.warranty_months || 0),
-                        is_estimate: p.is_estimate || false,
-                        estimate_text: p.estimate_text || ''
-                    }));
+                    const partsToInsert = modalParts.filter(p => p.name.trim() !== '').map(p => {
+                        let parsedPrice = parseCurrency(p.price);
+                        if (p.is_discount) parsedPrice = -Math.abs(parsedPrice);
+
+                        return {
+                            order_id: selectedOrder.id,
+                            name: p.name,
+                            price: parsedPrice,
+                            warranty_months: Number(p.warranty_months || 0),
+                            is_estimate: p.is_estimate || false,
+                            estimate_text: p.estimate_text || ''
+                        };
+                    });
+                    
                     if(partsToInsert.length > 0) {
                         await supabase.from('order_parts').insert(partsToInsert);
                     }
@@ -617,13 +650,6 @@
                 }
             };
 
-            const handleDeleteTransaction = async (id) => {
-                if(window.confirm('Yakin ingin menghapus mutasi ini? Saldo akan disesuaikan otomatis.')) {
-                    await supabase.from('transactions').delete().eq('id', id);
-                    setTransactions(transactions.filter(t => t.id !== id));
-                }
-            };
-            
             const handleAddTechnician = async (e) => {
                 e.preventDefault();
                 setIsSaving(true);
@@ -647,6 +673,31 @@
                 }
             };
 
+            const GlobalDateFilter = () => (
+                <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm shrink-0 w-full md:w-auto">
+                    <i className="fa-regular fa-calendar-days text-slate-400"></i>
+                    <div className="flex items-center gap-2 flex-1">
+                        <input type="date" value={globalStartDate} onChange={e => setGlobalStartDate(e.target.value)} className="bg-transparent text-xs font-bold text-slate-700 outline-none w-full" title="Dari Tanggal" />
+                        <span className="text-slate-300">-</span>
+                        <input type="date" value={globalEndDate} onChange={e => setGlobalEndDate(e.target.value)} className="bg-transparent text-xs font-bold text-slate-700 outline-none w-full" title="Sampai Tanggal" />
+                    </div>
+                    {(globalStartDate || globalEndDate) && (
+                        <button onClick={() => { setGlobalStartDate(''); setGlobalEndDate(''); }} className="text-red-400 hover:text-red-600 p-1" title="Reset Filter"><i className="fa-solid fa-circle-xmark"></i></button>
+                    )}
+                </div>
+            );
+
+            // Filter logic for Dashboard & Jadwal based on Global Date
+            const filteredOrdersGlobal = useMemo(() => {
+                return orders.filter(o => {
+                    let match = true;
+                    if (globalStartDate) match = match && o.date >= globalStartDate;
+                    if (globalEndDate) match = match && o.date <= globalEndDate;
+                    return match;
+                });
+            }, [orders, globalStartDate, globalEndDate]);
+
+
             if (isInitialLoading) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
@@ -658,7 +709,7 @@
 
             if (publicInvoiceOrder) {
                 return (
-                    <div className="min-h-screen bg-slate-100 p-2 sm:p-8 flex items-start justify-center fade-in overflow-y-auto">
+                    <div className="min-h-screen bg-slate-100 flex items-start justify-center fade-in overflow-y-auto">
                         <InvoiceTemplate order={publicInvoiceOrder} isStandalone={true} />
                     </div>
                 );
@@ -707,108 +758,20 @@
                 )
             }
 
-            const Navigation = () => {
-                if (isBossView) return null; 
-                
-                return (
-                    <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 text-white transform ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 transition-transform duration-300 shadow-2xl flex flex-col`}>
-                        <div className="p-6 flex items-center justify-between border-b border-slate-800">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-red-600 w-8 h-8 rounded-lg flex items-center justify-center shadow-lg"><i className="fa-solid fa-wrench text-white text-sm"></i></div>
-                                <h1 className="text-xl font-black tracking-tight text-white">SERVISIKA</h1>
-                            </div>
-                            <button className="md:hidden text-slate-400 hover:text-white" onClick={() => setIsMobileMenuOpen(false)}>
-                                <i className="fa-solid fa-xmark text-2xl"></i>
-                            </button>
-                        </div>
-
-                        <div className="p-4 flex-1 overflow-y-auto">
-                            <p className="text-slate-500 text-[10px] font-bold uppercase tracking-widest mb-4 px-3">Menu {role === 'admin' ? 'Admin' : 'Teknisi'}</p>
-                            <ul className="space-y-1.5">
-                                {role === 'admin' ? (
-                                    <>
-                                        {[{ id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard Overview' },
-                                          { id: 'jadwal', icon: 'fa-calendar-days', label: 'Jadwal & Order' },
-                                          { id: 'keuangan', icon: 'fa-wallet', label: 'Arus Kas' },
-                                          { id: 'tim', icon: 'fa-user-group', label: 'Tim Teknisi' },
-                                          { id: 'galeri', icon: 'fa-folder-open', label: 'Galeri & Bukti' }].map(item => (
-                                            <li key={item.id}>
-                                                <button onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${activeTab === item.id ? 'bg-red-600 text-white shadow-lg font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-white font-medium'}`}>
-                                                    <i className={`fa-solid ${item.icon} w-5 text-center`}></i> <span className="text-sm">{item.label}</span>
-                                                </button>
-                                            </li>
-                                        ))}
-                                    </>
-                                ) : (
-                                    <>
-                                        <li>
-                                            <button onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${activeTab === 'dashboard' ? 'bg-red-600 text-white shadow-lg font-bold' : 'text-slate-400 hover:bg-slate-800 font-medium'}`}>
-                                                <i className="fa-solid fa-clipboard-list w-5 text-center"></i> <span className="text-sm">Tugas Lapangan</span>
-                                            </button>
-                                        </li>
-                                    </>
-                                )}
-                            </ul>
-                        </div>
-                        
-                        <div className="p-5 border-t border-slate-800 bg-slate-950/50 mt-auto">
-                            <div className="flex items-center gap-3 mb-5">
-                                <div className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center font-bold text-slate-300 border border-slate-700">{currentUser?.name.charAt(0).toUpperCase()}</div>
-                                <div className="overflow-hidden">
-                                    <p className="font-bold text-sm truncate leading-tight text-white">{currentUser?.name}</p>
-                                    <p className="text-[10px] text-slate-400 capitalize font-medium">{role}</p>
-                                </div>
-                            </div>
-                            <button onClick={handleLogout} className="w-full text-xs bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white py-3 rounded-xl transition-colors font-bold flex justify-center items-center gap-2">
-                                <i className="fa-solid fa-arrow-right-from-bracket"></i> Keluar Akun
-                            </button>
-                        </div>
-                    </div>
-                );
-            };
-
             const renderDashboard = () => {
                 const todayStr = getLocalDateString(new Date());
-                const todayDateObj = new Date();
-                const dayOfWeek = todayDateObj.getDay(); 
-                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-                
-                const mondayDate = new Date(todayDateObj);
-                mondayDate.setDate(diffToMonday);
-                mondayDate.setHours(0,0,0,0);
-                
-                const sundayDate = new Date(mondayDate);
-                sundayDate.setDate(mondayDate.getDate() + 6);
-                sundayDate.setHours(23,59,59,999);
-                
-                const firstDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth(), 1);
-                const lastDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth() + 1, 0);
 
-                let displayOrders = orders;
+                let displayOrders = filteredOrdersGlobal;
                 
-                if (dashFilter === 'aktif') displayOrders = orders.filter(o => isOrderActive(o.status));
-                else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
-                else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
+                if (dashFilter === 'aktif') displayOrders = filteredOrdersGlobal.filter(o => isOrderActive(o.status));
+                else if (dashFilter === 'selesai') displayOrders = filteredOrdersGlobal.filter(o => o.status === 'Lunas');
+                else if (dashFilter === 'pending') displayOrders = filteredOrdersGlobal.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
                 const activeFiltered = displayOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
                 
-                let filteredForTime = activeFiltered;
-                if (dashTimeFilter === 'hari_ini') {
-                    filteredForTime = activeFiltered.filter(o => o.date === todayStr);
-                } else if (dashTimeFilter === 'minggu_ini') {
-                    filteredForTime = activeFiltered.filter(o => {
-                        const d = new Date(o.date);
-                        return d >= mondayDate && d <= sundayDate;
-                    });
-                } else if (dashTimeFilter === 'bulan_ini') {
-                    filteredForTime = activeFiltered.filter(o => {
-                        const d = new Date(o.date);
-                        return d >= firstDayOfMonth && d <= lastDayOfMonth;
-                    });
-                }
-
-                const upcomingList = filteredForTime.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
-                const overdueList = filteredForTime.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
+                // Pisahkan yang hari ini/mendatang dan yang tertunda
+                const upcomingList = activeFiltered.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
+                const overdueList = activeFiltered.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
 
                 const renderOrderItem = (o) => {
                     const waPhone = getCleanPhone(o.phone);
@@ -853,35 +816,39 @@
 
                 return (
                 <div className="space-y-6 fade-in max-w-6xl mx-auto">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
                             <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">Overview Operasional</h2>
                             <p className="text-slate-500 text-sm mt-1">Ringkasan pengerjaan dan performa bisnis.</p>
                         </div>
-                        {role === 'admin' && !isBossView && (
-                            <button onClick={() => copyToClipboard(window.location.origin + window.location.pathname + '?boss=true', 'Link Laporan Bos berhasil disalin!')} className="w-full sm:w-auto bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50 shadow-sm transition-colors active:scale-95">
-                                <i className="fa-solid fa-link text-blue-500"></i> Copy Link Laporan Bos
-                            </button>
-                        )}
-                        {isBossView && (
-                            <div className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-bold border border-red-200 shadow-sm flex items-center gap-2">
-                                <i className="fa-solid fa-eye"></i> Mode Laporan (Read-Only)
-                            </div>
-                        )}
+                        
+                        <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                            <GlobalDateFilter />
+                            {role === 'admin' && !isBossView && (
+                                <button onClick={() => copyToClipboard(window.location.origin + window.location.pathname + '?boss=true', 'Link Laporan Bos berhasil disalin!')} className="w-full sm:w-auto bg-white border border-slate-200 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 hover:bg-slate-50 shadow-sm transition-colors active:scale-95 shrink-0">
+                                    <i className="fa-solid fa-link text-blue-500"></i> Copy Link Bos
+                                </button>
+                            )}
+                            {isBossView && (
+                                <div className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm font-bold border border-red-200 shadow-sm flex items-center gap-2 shrink-0">
+                                    <i className="fa-solid fa-eye"></i> Laporan (Read-Only)
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div onClick={() => setDashFilter(dashFilter === 'aktif' ? null : 'aktif')} className={`bg-white border p-5 rounded-2xl flex items-center gap-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${dashFilter === 'aktif' ? 'border-blue-500 ring-2 ring-blue-100' : 'border-slate-200'}`}>
                             <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-600 shrink-0"><i className="fa-solid fa-wrench text-xl"></i></div>
-                            <div><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Order Aktif</p><h3 className="text-3xl font-black text-slate-800 leading-none mt-1">{orders.filter(o => isOrderActive(o.status)).length}</h3></div>
+                            <div><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Order Aktif</p><h3 className="text-3xl font-black text-slate-800 leading-none mt-1">{filteredOrdersGlobal.filter(o => isOrderActive(o.status)).length}</h3></div>
                         </div>
                         <div onClick={() => setDashFilter(dashFilter === 'selesai' ? null : 'selesai')} className={`bg-white border p-5 rounded-2xl flex items-center gap-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${dashFilter === 'selesai' ? 'border-green-500 ring-2 ring-green-100' : 'border-slate-200'}`}>
                             <div className="bg-green-50 border border-green-100 p-4 rounded-xl text-green-600 shrink-0"><i className="fa-solid fa-check-double text-xl"></i></div>
-                            <div><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Lunas/Selesai</p><h3 className="text-3xl font-black text-slate-800 leading-none mt-1">{orders.filter(o => o.status === 'Lunas').length}</h3></div>
+                            <div><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Lunas/Selesai</p><h3 className="text-3xl font-black text-slate-800 leading-none mt-1">{filteredOrdersGlobal.filter(o => o.status === 'Lunas').length}</h3></div>
                         </div>
                         <div onClick={() => setDashFilter(dashFilter === 'pending' ? null : 'pending')} className={`bg-white border p-5 rounded-2xl flex items-center gap-4 shadow-sm hover:shadow-md transition-all cursor-pointer ${dashFilter === 'pending' ? 'border-red-500 ring-2 ring-red-100' : 'border-slate-200'}`}>
                             <div className="bg-red-50 border border-red-100 p-4 rounded-xl text-red-600 shrink-0"><i className="fa-solid fa-clock-rotate-left text-xl"></i></div>
-                            <div><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Pending/Komplain</p><h3 className="text-3xl font-black text-slate-800 leading-none mt-1">{orders.filter(o=>o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain')).length}</h3></div>
+                            <div><p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Pending/Komplain</p><h3 className="text-3xl font-black text-slate-800 leading-none mt-1">{filteredOrdersGlobal.filter(o=>o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain')).length}</h3></div>
                         </div>
                         <div className="bg-white border border-slate-200 p-5 rounded-2xl flex items-center gap-4 shadow-sm">
                             <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl text-emerald-600 shrink-0"><i className="fa-solid fa-wallet text-xl"></i></div>
@@ -897,15 +864,10 @@
                             <div>
                                 <h3 className="font-black text-slate-800 tracking-tight flex items-center gap-2">
                                     Jadwal Pengerjaan Berjalan
-                                    {dashFilter && <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Filtered</span>}
+                                    {dashFilter && <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Filtered Status</span>}
+                                    {(globalStartDate || globalEndDate) && <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ml-1">Filtered Tgl</span>}
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-1 font-medium">Pantauan aktivitas lapangan yang butuh tindakan.</p>
-                            </div>
-                            <div className="px-4 py-2 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2 shadow-sm">
-                                <button onClick={() => setDashTimeFilter('semua')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua</button>
-                                <button onClick={() => setDashTimeFilter('hari_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
-                                <button onClick={() => setDashTimeFilter('minggu_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
-                                <button onClick={() => setDashTimeFilter('bulan_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'bulan_ini' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>Bulan Ini</button>
                             </div>
                         </div>
                         <div className="divide-y divide-slate-100 bg-slate-50">
@@ -929,7 +891,7 @@
                             {(upcomingList.length === 0 && overdueList.length === 0) && (
                                 <div className="p-12 text-center text-slate-400 bg-white">
                                     <i className="fa-solid fa-calendar-check text-4xl mb-3 text-slate-300 block"></i>
-                                    <p className="text-sm font-bold">Tidak ada pengerjaan aktif saat ini.</p>
+                                    <p className="text-sm font-bold">Tidak ada pengerjaan aktif di rentang waktu ini.</p>
                                 </div>
                             )}
                         </div>
@@ -952,8 +914,10 @@
                 sundayDate.setDate(mondayDate.getDate() + 6);
                 sundayDate.setHours(23,59,59,999);
 
-                let filteredOrders = orders.filter(o => jadwalTab === 'aktif' ? isOrderActive(o.status) || o.status.includes('Komplain') : ['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain'));
+                // Use Global Filter first
+                let filteredOrders = filteredOrdersGlobal.filter(o => jadwalTab === 'aktif' ? (isOrderActive(o.status) || o.status.includes('Komplain')) : (['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain')));
                 
+                // Then apply View Mode Filter (Hari ini, Minggu Ini, Tertunda)
                 if (jadwalTab === 'aktif') {
                     if (jadwalViewMode === 'hari_ini') {
                         filteredOrders = filteredOrders.filter(o => o.date === todayStr);
@@ -982,34 +946,37 @@
 
                 return (
                 <div className="space-y-6 fade-in max-w-6xl mx-auto">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
                             <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">Jadwal & Order</h2>
                             <p className="text-slate-500 text-sm mt-1">Kelola pengerjaan, penugasan teknisi, dan invoice.</p>
                         </div>
-                        <button onClick={() => { setSelectedOrder(null); setModalParts([]); setShowOrderModal(true); }} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
-                            <i className="fa-solid fa-plus"></i> Buat Order Baru
-                        </button>
+                        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+                            <GlobalDateFilter />
+                            <button onClick={() => { setSelectedOrder(null); setModalParts([]); setShowOrderModal(true); }} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all shrink-0">
+                                <i className="fa-solid fa-plus"></i> Buat Order
+                            </button>
+                        </div>
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col">
-                        <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row gap-4 justify-between items-center">
-                            <div className="flex bg-slate-200/50 p-1 rounded-xl w-full sm:w-auto">
-                                <button onClick={() => setJadwalTab('aktif')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'aktif' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-700'}`}>Aktif & Berjalan</button>
-                                <button onClick={() => setJadwalTab('arsip')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'arsip' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Arsip Selesai</button>
+                        <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row gap-4 justify-between items-center">
+                            <div className="flex bg-slate-200/50 p-1 rounded-xl w-full md:w-auto">
+                                <button onClick={() => setJadwalTab('aktif')} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'aktif' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-700'}`}>Aktif & Berjalan</button>
+                                <button onClick={() => setJadwalTab('arsip')} className={`flex-1 md:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'arsip' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Arsip Selesai</button>
                             </div>
                             
-                            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                                <div className="flex bg-white border border-slate-200 rounded-lg px-2 items-center flex-1 sm:w-auto focus-within:border-red-400">
+                            <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                                <div className="flex bg-white border border-slate-200 rounded-lg px-2 items-center flex-1 md:w-48 focus-within:border-red-400 shadow-sm">
                                     <i className="fa-solid fa-search text-slate-400 text-xs ml-1"></i>
-                                    <input type="text" value={jadwalSearch} onChange={e => setJadwalSearch(e.target.value)} placeholder="Cari klien, unit, atau ID..." className="p-2 text-xs font-bold text-slate-600 outline-none w-full bg-transparent" />
+                                    <input type="text" value={jadwalSearch} onChange={e => setJadwalSearch(e.target.value)} placeholder="Cari Klien, ID, Unit..." className="p-2 text-xs font-bold text-slate-600 outline-none w-full bg-transparent" />
                                 </div>
-                                <select value={jadwalFilterTech} onChange={e => setJadwalFilterTech(e.target.value)} className="flex-1 sm:w-32 bg-white border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-600 outline-none focus:border-red-400">
+                                <select value={jadwalFilterTech} onChange={e => setJadwalFilterTech(e.target.value)} className="flex-1 md:w-36 bg-white border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-600 outline-none focus:border-red-400 shadow-sm">
                                     <option value="">Semua Teknisi</option>
                                     <option value="Belum Ditugaskan">Belum Ditugaskan</option>
                                     {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                 </select>
-                                <select value={jadwalFilterStatus} onChange={e => setJadwalFilterStatus(e.target.value)} className="flex-1 sm:w-36 bg-white border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-600 outline-none focus:border-red-400">
+                                <select value={jadwalFilterStatus} onChange={e => setJadwalFilterStatus(e.target.value)} className="flex-1 md:w-36 bg-white border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-600 outline-none focus:border-red-400 shadow-sm">
                                     <option value="">Semua Status</option>
                                     <option value="Proses">Proses</option>
                                     <option value="Pending/Tunggu Sparepart">Pending</option>
@@ -1025,7 +992,7 @@
 
                         {jadwalTab === 'aktif' && (
                             <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-wrap gap-2">
-                                <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif</button>
+                                <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif (Draft)</button>
                                 <button onClick={() => setJadwalViewMode('hari_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
                                 <button onClick={() => setJadwalViewMode('minggu_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
                                 <button onClick={() => setJadwalViewMode('tertunda')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'tertunda' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Tertunda / Lanjutan</button>
@@ -1069,11 +1036,16 @@
                                                     <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded hover:bg-emerald-100 transition-colors" title="Chat WA Klien"><i className="fa-brands fa-whatsapp"></i></a>
                                                     <button onClick={() => copyToClipboard(waPhone, 'Nomor WA Klien disalin!')} className="text-slate-400 hover:text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded transition-colors" title="Salin WA Klien"><i className="fa-regular fa-copy"></i></button>
                                                 </div>
-                                                <p className="text-xs text-slate-500 truncate max-w-[200px] flex items-center gap-1 font-medium"><i className="fa-solid fa-location-dot text-slate-400"></i> {o.address}</p>
+                                                <p className="text-xs text-slate-500 truncate max-w-[200px] flex items-center gap-1 font-medium">
+                                                    <i className="fa-solid fa-location-dot text-slate-400"></i> {o.address}
+                                                </p>
+                                                {o.maps_link && (
+                                                    <a href={o.maps_link} target="_blank" className="text-[10px] text-blue-600 font-bold mt-1 inline-flex items-center gap-1 hover:underline"><i className="fa-solid fa-map"></i> Buka Maps</a>
+                                                )}
                                             </td>
                                             <td className="p-4 align-top">
                                                 <p className="font-bold text-slate-800 text-xs">{o.unit}</p>
-                                                <p className="text-[11px] text-red-600 font-medium mt-1 truncate max-w-[200px]">{o.issue}</p>
+                                                <p className="text-[11px] text-red-600 font-medium mt-1 max-w-[200px] line-clamp-2">{o.issue}</p>
                                             </td>
                                             <td className="p-4 align-top">
                                                 <div className="mb-2">
@@ -1096,11 +1068,19 @@
                                                 }`}>{o.status}</span>
                                             </td>
                                             <td className="p-4 text-center align-top">
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
+                                                <button onClick={() => { 
+                                                    const partsFormatted = (o.order_parts||[]).map(p => ({
+                                                        ...p, is_discount: p.price < 0, price: Math.abs(p.price)
+                                                    }));
+                                                    setModalParts(partsFormatted); 
+                                                    setSelectedOrder(o); 
+                                                    fetchOrderFiles(o.id); 
+                                                    setShowOrderModal(true); 
+                                                }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
                                             </td>
                                         </tr>
                                     )})}
-                                    {filteredOrders.length === 0 && <tr><td colSpan="5" className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
+                                    {filteredOrders.length === 0 && <tr><td colSpan="5" className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 text-slate-200 block"></i>Tidak ada data pengerjaan yang cocok dengan filter.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -1123,7 +1103,7 @@
 
                         <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-4 shadow-sm bg-blue-50/50">
                             <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage Folder</p>
-                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung dan didownload terpisah, atau ditarik semua menggunakan tombol Download ZIP.</p>
+                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung, didownload satuan, atau ditarik semua menggunakan tombol Download ZIP.</p>
                         </div>
 
                         <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200 mb-4 w-fit">
@@ -1211,10 +1191,10 @@
                                     <i className="fa-solid fa-search text-slate-400 text-sm"></i>
                                     <input type="text" placeholder="Cari keterangan..." value={financeFilter.search} onChange={e => setFinanceFilter({...financeFilter, search: e.target.value})} className="w-full p-2.5 outline-none text-sm font-bold text-slate-700 bg-transparent" />
                                 </div>
-                                <select value={financeFilter.category} onChange={e => setFinanceFilter({...financeFilter, category: e.target.value})} className="bg-white border border-slate-200 p-2.5 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-500 shadow-sm cursor-pointer">
-                                    <option value="Semua">Semua Kategori Kas</option>
-                                    <option value="Kas Berjalan">Khusus Kas Berjalan</option>
-                                    <option value="Kas Tetap">Khusus Kas Tetap</option>
+                                <select value={financeFilter.type} onChange={e => setFinanceFilter({...financeFilter, type: e.target.value})} className="bg-white border border-slate-200 p-2.5 rounded-xl text-sm font-bold text-slate-700 outline-none focus:border-emerald-500 shadow-sm cursor-pointer">
+                                    <option value="Semua">Semua Transaksi</option>
+                                    <option value="in">Pemasukan (+)</option>
+                                    <option value="out">Pengeluaran (-)</option>
                                 </select>
                                 <div className="flex flex-col bg-white border border-slate-200 rounded-xl px-2 shadow-sm focus-within:border-emerald-500 relative">
                                     <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest absolute top-1 left-2">Dari Tanggal</label>
@@ -1384,7 +1364,15 @@
                             </div>
                             <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
-                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
+                                <button onClick={() => { 
+                                    const partsFormatted = (o.order_parts||[]).map(p => ({
+                                        ...p, is_discount: p.price < 0, price: Math.abs(p.price)
+                                    }));
+                                    setModalParts(partsFormatted); 
+                                    setSelectedOrder(o); 
+                                    fetchOrderFiles(o.id); 
+                                    setShowOrderModal(true); 
+                                }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
                             </div>
                         </div>
                     );
@@ -1448,7 +1436,15 @@
                                             </div>
                                             <div className="flex-1 space-y-2">
                                                 {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
-                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }}>
+                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { 
+                                                        const partsFormatted = (o.order_parts||[]).map(p => ({
+                                                            ...p, is_discount: p.price < 0, price: Math.abs(p.price)
+                                                        }));
+                                                        setModalParts(partsFormatted); 
+                                                        setSelectedOrder(o); 
+                                                        fetchOrderFiles(o.id); 
+                                                        setShowOrderModal(true); 
+                                                    }}>
                                                         <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
                                                         <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
                                                     </div>
@@ -1601,41 +1597,50 @@
                                         )}
 
                                         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                                            <div className="flex justify-between items-center mb-4">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><i className="fa-solid fa-receipt"></i> Rincian Jasa & Sparepart</label>
-                                                <button type="button" onClick={() => setModalParts([...modalParts, {name: '', price: 0, warranty_months: 0, is_estimate: false, estimate_text: ''}])} className="text-[10px] font-black bg-red-50 text-red-700 px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-100 uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-plus"></i> Tambah Baris</button>
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><i className="fa-solid fa-receipt"></i> Rincian Tagihan</label>
+                                                <div className="flex gap-2">
+                                                    <button type="button" onClick={() => setModalParts([...modalParts, {name: 'Potongan Harga: ', price: 0, warranty_months: 0, is_estimate: false, is_discount: true}])} className="text-[10px] font-black bg-red-50 text-red-700 px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-100 uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-minus"></i> Tambah Diskon</button>
+                                                    <button type="button" onClick={() => setModalParts([...modalParts, {name: '', price: 0, warranty_months: 0, is_estimate: false, is_discount: false}])} className="text-[10px] font-black bg-slate-100 text-slate-700 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-200 uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-plus"></i> Jasa/Sparepart</button>
+                                                </div>
                                             </div>
                                             
                                             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-inner bg-slate-50">
                                                 {modalParts.map((part, idx) => (
-                                                    <div key={idx} className="p-4 border-b border-slate-200 flex flex-col sm:flex-row gap-3 relative group bg-white">
+                                                    <div key={idx} className={`p-4 border-b border-slate-200 flex flex-col sm:flex-row gap-3 relative group bg-white ${part.is_discount ? 'bg-red-50/20' : ''}`}>
                                                         <div className="flex-1 w-full">
-                                                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Deskripsi</label>
-                                                            <input type="text" value={part.name} onChange={e => { const newP = [...modalParts]; newP[idx].name = e.target.value; setModalParts(newP); }} placeholder="Cth: Ganti V-Belt..." className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
+                                                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">{part.is_discount ? 'Keterangan Diskon' : 'Deskripsi'}</label>
+                                                            <input type="text" value={part.name} onChange={e => { const newP = [...modalParts]; newP[idx].name = e.target.value; setModalParts(newP); }} placeholder={part.is_discount ? "Cth: Promo Kemerdekaan..." : "Cth: Ganti V-Belt..."} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
                                                         </div>
                                                         
                                                         <div className="w-full sm:w-48 relative">
                                                             <div className="flex justify-between items-center mb-1">
-                                                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Harga / Tarif</label>
-                                                                <label className="text-[9px] font-bold text-orange-600 flex items-center gap-1 cursor-pointer select-none">
-                                                                    <input type="checkbox" checked={part.is_estimate} onChange={e => { const newP = [...modalParts]; newP[idx].is_estimate = e.target.checked; setModalParts(newP); }} className="accent-orange-500" />
-                                                                    Estimasi?
-                                                                </label>
+                                                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{part.is_discount ? 'Nominal Potongan' : 'Harga / Tarif'}</label>
+                                                                {!part.is_discount && (
+                                                                    <label className="text-[9px] font-bold text-orange-600 flex items-center gap-1 cursor-pointer select-none">
+                                                                        <input type="checkbox" checked={part.is_estimate} onChange={e => { const newP = [...modalParts]; newP[idx].is_estimate = e.target.checked; setModalParts(newP); }} className="accent-orange-500" />
+                                                                        Estimasi?
+                                                                    </label>
+                                                                )}
                                                             </div>
                                                             
                                                             {part.is_estimate ? (
-                                                                <input type="text" value={part.estimate_text} onChange={e => { const newP = [...modalParts]; newP[idx].estimate_text = e.target.value; setModalParts(newP); }} placeholder="Cth: 1 Juta - 1.5 Juta" className="w-full p-3 border border-orange-200 rounded-xl text-sm font-bold outline-none focus:border-orange-400 bg-orange-50 text-orange-700" required />
+                                                                <input type="text" value={part.estimate_text} onChange={e => { const newP = [...modalParts]; newP[idx].estimate_text = e.target.value; setModalParts(newP); }} placeholder="Cth: 1 Jt - 1.5 Jt" className="w-full p-3 border border-orange-200 rounded-xl text-sm font-bold outline-none focus:border-orange-400 bg-orange-50 text-orange-700" required />
                                                             ) : (
                                                                 <>
-                                                                    <span className="absolute left-3 top-[26px] text-slate-400 font-bold text-sm">Rp</span>
-                                                                    <input type="text" value={formatNumberStr(part.price)} onChange={e => { const newP = [...modalParts]; newP[idx].price = parseCurrency(e.target.value); setModalParts(newP); }} className="w-full p-3 pl-9 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
+                                                                    {part.is_discount ? (
+                                                                        <span className="absolute left-3 top-[26px] text-red-500 font-black text-sm">-Rp</span>
+                                                                    ) : (
+                                                                        <span className="absolute left-3 top-[26px] text-slate-400 font-bold text-sm">Rp</span>
+                                                                    )}
+                                                                    <input type="text" value={formatNumberStr(part.price)} onChange={e => { const newP = [...modalParts]; newP[idx].price = parseCurrency(e.target.value); setModalParts(newP); }} className={`w-full p-3 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50 ${part.is_discount ? 'pl-11 text-red-600' : 'pl-9'}`} required />
                                                                 </>
                                                             )}
                                                         </div>
                                                         
                                                         <div className="w-full sm:w-28 relative">
                                                             <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Garansi</label>
-                                                            <input type="number" value={part.warranty_months} onChange={e => { const newP = [...modalParts]; newP[idx].warranty_months = e.target.value; setModalParts(newP); }} placeholder="0" className="w-full p-3 pr-8 border border-slate-200 rounded-xl text-sm text-center font-bold outline-none focus:border-red-400 bg-slate-50" />
+                                                            <input type="number" value={part.warranty_months} onChange={e => { const newP = [...modalParts]; newP[idx].warranty_months = e.target.value; setModalParts(newP); }} placeholder="0" className="w-full p-3 pr-8 border border-slate-200 rounded-xl text-sm text-center font-bold outline-none focus:border-red-400 bg-slate-50" disabled={part.is_discount} />
                                                             <span className="absolute right-3 top-[28px] text-[10px] text-slate-500 font-bold uppercase">Bln</span>
                                                         </div>
                                                         
@@ -1645,7 +1650,7 @@
                                                 {modalParts.length === 0 && <div className="p-6 text-center text-xs text-slate-400 font-bold uppercase tracking-wider"><i className="fa-solid fa-square-plus text-2xl mb-2 opacity-30 block"></i>Belum ada rincian. Klik Tambah Baris.</div>}
                                                 <div className="p-5 bg-slate-100 flex justify-between items-center border-t border-slate-200">
                                                     <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Tagihan (Pasti):</span>
-                                                    <span className="text-2xl font-black text-red-700">{formatRupiah(modalParts.reduce((s, p)=>s + (p.is_estimate ? 0 : Number(p.price)),0))}</span>
+                                                    <span className="text-2xl font-black text-red-700">{formatRupiah(modalParts.reduce((s, p) => s + (p.is_estimate ? 0 : (p.is_discount ? -parseCurrency(p.price) : parseCurrency(p.price))), 0))}</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -1852,12 +1857,21 @@
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
                             <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden border border-slate-200">
                                 <div className={`p-6 flex justify-between items-center shrink-0 text-white ${showCashDetailModal.type === 'Kas Berjalan' ? 'bg-blue-600' : 'bg-red-600'}`}>
-                                    <div><p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Riwayat Filter</p><h3 className="font-black text-2xl">{showCashDetailModal.type}</h3></div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest opacity-80 mb-1">Riwayat Transaksi</p>
+                                        <h3 className="font-black text-2xl">{showCashDetailModal.type}</h3>
+                                        {(financeFilter.startDate || financeFilter.endDate) && (
+                                            <p className="text-xs bg-white/20 px-2 py-1 rounded mt-2 font-medium">Periode Filter: {financeFilter.startDate || 'Awal'} s/d {financeFilter.endDate || 'Sekarang'}</p>
+                                        )}
+                                    </div>
                                     <button onClick={() => setShowCashDetailModal({ isOpen: false, type: null })} className="bg-black/20 hover:bg-black/30 w-10 h-10 flex items-center justify-center rounded-full transition-colors"><i className="fa-solid fa-xmark text-lg"></i></button>
                                 </div>
                                 <div className="overflow-y-auto flex-1 bg-slate-50">
                                     <div className="divide-y divide-slate-200 bg-white">
-                                        {transactions.filter(t => t.category === showCashDetailModal.type).map(trx => (
+                                        {transactions
+                                            .filter(t => t.category === showCashDetailModal.type)
+                                            .filter(t => (!financeFilter.startDate || t.date >= financeFilter.startDate) && (!financeFilter.endDate || t.date <= financeFilter.endDate))
+                                            .map(trx => (
                                             <div key={trx.id} className="p-4 sm:p-5 flex justify-between items-center hover:bg-slate-50 transition-colors group">
                                                 <div>
                                                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1"><i className="fa-regular fa-calendar mr-1"></i> {new Date(trx.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
@@ -1871,7 +1885,10 @@
                                                 </div>
                                             </div>
                                         ))}
-                                        {transactions.filter(t => t.category === showCashDetailModal.type).length === 0 && <div className="py-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 opacity-30 block"></i>Belum ada transaksi di kas ini.</div>}
+                                        {transactions
+                                            .filter(t => t.category === showCashDetailModal.type)
+                                            .filter(t => (!financeFilter.startDate || t.date >= financeFilter.startDate) && (!financeFilter.endDate || t.date <= financeFilter.endDate))
+                                            .length === 0 && <div className="py-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 opacity-30 block"></i>Belum ada transaksi di periode ini.</div>}
                                     </div>
                                 </div>
                             </div>
