@@ -360,16 +360,16 @@
                 }
             };
 
-            // FIX: Menyaring transaksi yang "disembunyikan" agar tidak tampil dan tidak dihitung
+            // FIX: Transaksi "rahasia" (is_hidden) TIDAK ditampilkan di tabel, TAPI TETAP DIHITUNG di total Saldo
             const kasBerjalan = useMemo(() => {
                 return transactions
-                    .filter(t => t.category === 'Kas Berjalan' && !t.is_hidden)
+                    .filter(t => t.category === 'Kas Berjalan')
                     .reduce((sum, t) => t.type === 'in' ? sum + Number(t.amount) : sum - Number(t.amount), 0);
             }, [transactions]);
 
             const kasTetap = useMemo(() => {
                 return transactions
-                    .filter(t => t.category === 'Kas Tetap' && !t.is_hidden)
+                    .filter(t => t.category === 'Kas Tetap')
                     .reduce((sum, t) => t.type === 'in' ? sum + Number(t.amount) : sum - Number(t.amount), 0);
             }, [transactions]);
 
