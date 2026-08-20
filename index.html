@@ -162,7 +162,13 @@
                         if (invoiceId) {
                             if(ordData) {
                                 const foundOrder = ordData.find(o => o.id === invoiceId);
-                                if(foundOrder) setPublicInvoiceOrder(foundOrder);
+                                if(foundOrder) {
+                                    setPublicInvoiceOrder(foundOrder);
+                                    
+                                    // FITUR BARU: Ubah judul tab browser agar pas di-Save as PDF namanya sangat rapi
+                                    const safeAddress = foundOrder.address ? foundOrder.address.substring(0, 35) + '...' : '';
+                                    document.title = "Invoice - Kpd yth. " + foundOrder.customer + " - " + safeAddress.replace(/[\n\r]/g, ' ');
+                                }
                             }
                             setIsInitialLoading(false);
                             return; 
@@ -483,7 +489,11 @@
                             <div className="flex-1 flex justify-end pt-2 mt-4">
                                 <div className="relative w-40 h-40 flex flex-col justify-between items-center">
                                     <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
-                                    <img src="https://i.imghippo.com/files/aEO3285DJU.png" alt="Tanda Tangan Servisika" className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" />
+                                    <img 
+                                        src="https://i.imghippo.com/files/aEO3285DJU.png" 
+                                        alt="Tanda Tangan Servisika" 
+                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" 
+                                    />
                                     <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">Admin Servisika</p>
                                 </div>
                             </div>
@@ -1114,7 +1124,11 @@
                                         const techObj = technicians.find(t => t.name === o.technician_name);
                                         const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
                                         const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
-                                        const waTechMsg = `Halo ${o.technician_name}, ada jadwal pengerjaan baru.%0AKlien: ${o.customer}%0ATanggal: ${dateStr}%0AEstimasi Waktu: ${o.time_estimate || '-'}%0AUnit: ${o.unit}%0AKendala: ${o.issue}%0A%0ACek detailnya di portal teknisi kamu ya:%0A${magicLink}`;
+                                        
+                                        // FITUR BARU: Template pesan WhatsApp Teknisi yang sangat komprehensif!
+                                        const mapsHref = o.maps_link ? o.maps_link : `https://maps.google.com/?q=${encodeURIComponent(o.address)}`;
+                                        const rawWaMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru!\n\n*👤 INFO KLIEN:*\nNama: ${o.customer}\nNo. HP: ${o.phone}\n\n*📍 JADWAL & LOKASI:*\nTanggal: ${dateStr}\nEstimasi Datang: ${o.time_estimate || '-'}\nAlamat: ${o.address}\nMaps: ${mapsHref}\n\n*🛠️ DETAIL PENGERJAAN:*\nUnit: ${o.unit}\nKendala: ${o.issue}\n\n*🔗 BUKA PORTAL TEKNISI:*\n(Wajib diklik untuk update progres pengerjaan)\n${magicLink}`;
+                                        const waTechMsg = encodeURIComponent(rawWaMsg);
 
                                         return (
                                         <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
