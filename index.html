@@ -113,7 +113,6 @@
                 return { search: '', type: 'Semua', startDate: '', endDate: '' };
             });
 
-            // Sync states to localStorage
             useEffect(() => { localStorage.setItem('svk_activeTab', activeTab); }, [activeTab]);
             useEffect(() => { if(dashFilter) localStorage.setItem('svk_dashFilter', dashFilter); else localStorage.removeItem('svk_dashFilter'); }, [dashFilter]);
             useEffect(() => { localStorage.setItem('svk_dashTimeFilter', dashTimeFilter); }, [dashTimeFilter]);
@@ -136,7 +135,7 @@
             const [vendorView, setVendorView] = useState('list');
             const [selectedVendor, setSelectedVendor] = useState(null);
             const [showVendorModal, setShowVendorModal] = useState(false);
-            const [vendorFormMode, setVendorFormMode] = useState('add'); // 'add' or 'edit'
+            const [vendorFormMode, setVendorFormMode] = useState('add');
             
             const [isSaving, setIsSaving] = useState(false);
 
@@ -296,8 +295,10 @@
                 const bankRek = isHarmoni ? '2752042277' : '638-042-8651';
                 const bankAn = isHarmoni ? 'Apep Saepul Manan' : 'Saepul Anwar';
                 const ttdName = isHarmoni ? 'Admin Harmoni Fitness' : 'Admin Servisika';
-                const titleColor = isHarmoni ? 'text-blue-700' : 'text-red-700';
-                const borderBrandColor = isHarmoni ? 'border-blue-600' : 'border-red-600';
+                
+                // KUNCI WARNA MERAH UNTUK KEDUA BRAND
+                const titleColor = 'text-red-700';
+                const borderBrandColor = 'border-red-600';
 
                 return (
                     <div className="w-full overflow-x-auto pb-4">
@@ -394,11 +395,14 @@
                                 </div>
                             </div>
                             
-                            {/* TANDA TANGAN YANG DIPERTAHANKAN 100% SESUAI EDITAN USER */}
                             <div className="flex-1 flex justify-end pt-2 mt-4">
                                 <div className="relative w-40 h-40 flex flex-col justify-between items-center">
                                     <p className="text-sm font-bold text-slate-500 z-10 relative">Hormat Kami,</p>
-                                    <img src="https://i.imghippo.com/files/aEO3285DJU.png" alt="Tanda Tangan Servisika" className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" />
+                                    <img 
+                                        src="https://i.imghippo.com/files/aEO3285DJU.png" 
+                                        alt="Tanda Tangan Servisika" 
+                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" 
+                                    />
                                     <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">{ttdName}</p>
                                 </div>
                             </div>
@@ -608,7 +612,7 @@
                         if (error) throw error;
                         if (data) {
                             setVendors(vendors.map(v => v.id === selectedVendor.id ? data[0] : v));
-                            setSelectedVendor(data[0]); // update detail view
+                            setSelectedVendor(data[0]); 
                         }
                     }
                     setShowVendorModal(false);
@@ -776,7 +780,6 @@
                 else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
                 else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
-                // Terapkan Filter Tanggal Global ke Dashboard jika ada
                 if (financeFilter.startDate) displayOrders = displayOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) displayOrders = displayOrders.filter(o => o.date <= financeFilter.endDate);
 
@@ -866,7 +869,6 @@
                         )}
                     </div>
 
-                    {/* Filter Global Tanggal */}
                     <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-wrap items-center gap-4 shadow-sm">
                         <p className="text-xs font-black uppercase tracking-widest text-slate-400 w-full sm:w-auto">Filter Data (Global):</p>
                         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -969,7 +971,6 @@
 
                 let filteredOrders = orders;
                 
-                // Filter Global dari Dashboard
                 if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) filteredOrders = filteredOrders.filter(o => o.date <= financeFilter.endDate);
 
