@@ -11,7 +11,6 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -81,7 +80,6 @@
             const [currentUser, setCurrentUser] = useState(null); 
             const [loginError, setLoginError] = useState('');
             
-            // FIX: Simpan Active Tab di memori supaya tidak reset saat Refresh di HP
             const [activeTab, setActiveTab] = useState(() => localStorage.getItem('svk_activeTab') || 'dashboard');
             const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
             
@@ -90,6 +88,7 @@
 
             const [transactions, setTransactions] = useState([]);
             const [technicians, setTechnicians] = useState([]);
+            const [vendors, setVendors] = useState([]);
             const [orders, setOrders] = useState([]);
 
             const [dashFilter, setDashFilter] = useState(() => localStorage.getItem('svk_dashFilter') || null); 
@@ -134,13 +133,11 @@
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
             const [showTechModal, setShowTechModal] = useState(false);
             
-            const [galeriTab, setGaleriTab] = useState('baru');
-            const [selectedGalleryFolder, setSelectedGalleryFolder] = useState(null);
+            const [vendorView, setVendorView] = useState('list');
+            const [selectedVendor, setSelectedVendor] = useState(null);
+            const [showVendorModal, setShowVendorModal] = useState(false);
             
             const [isSaving, setIsSaving] = useState(false);
-            const [isZipping, setIsZipping] = useState(false);
-            const [orderFiles, setOrderFiles] = useState([]);
-            const [isUploading, setIsUploading] = useState(false);
 
             useEffect(() => {
                 const initApp = async () => {
@@ -155,6 +152,9 @@
                         
                         const { data: techData } = await supabase.from('technicians').select('*').order('created_at', { ascending: false });
                         if (techData) setTechnicians(techData);
+
+                        const { data: vendorData } = await supabase.from('vendors').select('*').order('created_at', { ascending: false });
+                        if (vendorData) setVendors(vendorData);
                         
                         const { data: ordData } = await supabase.from('orders').select('*, order_parts(*)').order('date', { ascending: false }).order('created_at', { ascending: false });
                         if (ordData) setOrders(ordData);
@@ -164,8 +164,6 @@
                                 const foundOrder = ordData.find(o => o.id === invoiceId);
                                 if(foundOrder) {
                                     setPublicInvoiceOrder(foundOrder);
-                                    
-                                    // FITUR BARU: Ubah judul tab browser agar pas di-Save as PDF namanya sangat rapi
                                     const safeAddress = foundOrder.address ? foundOrder.address.substring(0, 35) + '...' : '';
                                     document.title = "Invoice - Kpd yth. " + foundOrder.customer + " - " + safeAddress.replace(/[\n\r]/g, ' ');
                                 }
@@ -209,122 +207,6 @@
                 initApp();
             }, []);
 
-            const fetchOrderFiles = async (orderId) => {
-                try {
-                    const { data, error } = await supabase.storage.from('dokumentasi').list(orderId);
-                    if (data) {
-                        const validFiles = data.filter(f => f.name !== '.emptyFolderPlaceholder');
-                        const filesWithUrls = validFiles.map(f => {
-                            const { data: urlData } = supabase.storage.from('dokumentasi').getPublicUrl(`${orderId}/${f.name}`);
-                            return { ...f, publicUrl: urlData.publicUrl };
-                        });
-                        setOrderFiles(filesWithUrls);
-                    }
-                } catch (err) {
-                    console.error("Gagal load files:", err);
-                }
-            };
-
-            const handleFileUpload = async (e, orderId) => {
-                const files = e.target.files;
-                if (!files || files.length === 0) return;
-                
-                setIsUploading(true);
-                try {
-                    for (const file of files) {
-                        const fileExt = file.name.split('.').pop();
-                        const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
-                        const filePath = `${orderId}/${fileName}`;
-                        
-                        const { error } = await supabase.storage.from('dokumentasi').upload(filePath, file);
-                        if (error) throw error;
-                    }
-                    await fetchOrderFiles(orderId);
-                } catch (error) {
-                    console.error("Upload error:", error);
-                    alert("Gagal upload file. Pastikan sudah menjalankan SQL untuk membuka kunci storage.");
-                } finally {
-                    setIsUploading(false);
-                }
-            };
-
-            const deleteFolderFiles = async (orderId) => {
-                try {
-                    const { data: files } = await supabase.storage.from('dokumentasi').list(orderId);
-                    if (files && files.length > 0) {
-                        const validFiles = files.filter(f => f.name !== '.emptyFolderPlaceholder');
-                        if (validFiles.length > 0) {
-                            const paths = validFiles.map(f => `${orderId}/${f.name}`);
-                            await supabase.storage.from('dokumentasi').remove(paths);
-                        }
-                    }
-                } catch (err) {
-                    console.error("Gagal hapus media Storage:", err);
-                }
-            };
-
-            const handleEmptyGallery = async (orderId) => {
-                if(window.confirm('YAKIN INGIN MENGHAPUS SEMUA MEDIA DI FOLDER INI?\n\nKapasitas storage akan kembali lega, dan data pengerjaan (teks) tetap aman tidak akan hilang.')) {
-                    setIsZipping(true); 
-                    await deleteFolderFiles(orderId);
-                    await fetchOrderFiles(orderId); 
-                    setIsZipping(false);
-                    alert('Media berhasil dihapus dari sistem!');
-                }
-            };
-
-            const toggleMediaDownloaded = async (orderId, currentStatus) => {
-                const newStatus = !currentStatus;
-                await supabase.from('orders').update({ is_media_downloaded: newStatus }).eq('id', orderId);
-                setOrders(orders.map(o => o.id === orderId ? {...o, is_media_downloaded: newStatus} : o));
-                if(selectedGalleryFolder && selectedGalleryFolder.id === orderId) {
-                    setSelectedGalleryFolder({...selectedGalleryFolder, is_media_downloaded: newStatus});
-                }
-            };
-
-            const handleDownloadZip = async (order) => {
-                if (!orderFiles || orderFiles.length === 0) {
-                    alert("Tidak ada file untuk didownload.");
-                    return;
-                }
-                setIsZipping(true);
-                try {
-                    const JSZip = window.JSZip;
-                    if (!JSZip) {
-                        alert("Sistem ZIP belum siap. Harap muat ulang halaman.");
-                        return;
-                    }
-                    const zip = new JSZip();
-                    
-                    const fetchPromises = orderFiles.map(async (file) => {
-                        const response = await fetch(file.publicUrl);
-                        const blob = await response.blob();
-                        zip.file(file.name, blob);
-                    });
-                    
-                    await Promise.all(fetchPromises);
-                    
-                    const zipContent = await zip.generateAsync({ type: "blob" });
-                    const downloadUrl = URL.createObjectURL(zipContent);
-                    const link = document.createElement('a');
-                    link.href = downloadUrl;
-                    link.download = `Dokumentasi_${order.customer.replace(/[^a-z0-9]/gi, '_')}_${order.order_id_text}.zip`;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    URL.revokeObjectURL(downloadUrl);
-
-                    if(!order.is_media_downloaded) {
-                        await toggleMediaDownloaded(order.id, false);
-                    }
-                } catch (err) {
-                    console.error("Error creating ZIP:", err);
-                    alert("Gagal membuat file ZIP.");
-                } finally {
-                    setIsZipping(false);
-                }
-            };
-
             const loginUser = (userRole, userData) => {
                 setIsLoggedIn(true);
                 setRole(userRole);
@@ -366,7 +248,6 @@
                 }
             };
 
-            // FIX: Transaksi "rahasia" (is_hidden) TIDAK ditampilkan di tabel, TAPI TETAP DIHITUNG di total Saldo
             const kasBerjalan = useMemo(() => {
                 return transactions
                     .filter(t => t.category === 'Kas Berjalan')
@@ -381,7 +262,7 @@
 
             const filteredTransactions = useMemo(() => {
                 return transactions.filter(trx => {
-                    if (trx.is_hidden) return false; // Abaikan transaksi yang di-hide dari database
+                    if (trx.is_hidden) return false; 
                     
                     const matchSearch = trx.description.toLowerCase().includes(financeFilter.search.toLowerCase());
                     const matchType = financeFilter.type === 'Semua' || trx.type === financeFilter.type;
@@ -432,6 +313,7 @@
                                 <p className="font-bold text-slate-800 text-base">{order.unit}</p>
                                 <p className="text-slate-600 mt-1 text-xs">Teknisi: <span className="font-bold">{order.technician_name}</span></p>
                                 <p className="text-slate-600 mt-1 text-xs">Status: <span className="font-bold uppercase text-red-600">{order.status}</span></p>
+                                {order.vendor_name && <p className="text-purple-600 mt-1 text-xs font-bold uppercase"><i className="fa-solid fa-handshake"></i> Vendor: {order.vendor_name}</p>}
                             </div>
                         </div>
 
@@ -534,9 +416,10 @@
                 const unit = formData.get('unit') || selectedOrder.unit;
                 const issue = formData.get('issue') || selectedOrder.issue;
                 const maps_link = formData.get('maps_link') || selectedOrder.maps_link || '';
+                const vendor_name = formData.get('vendor_name') || selectedOrder.vendor_name || '';
 
                 try {
-                    await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name, time_estimate, unit, issue, maps_link }).eq('id', selectedOrder.id);
+                    await supabase.from('orders').update({ status, notes, customer, address, phone, date, technician_name, time_estimate, unit, issue, maps_link, vendor_name }).eq('id', selectedOrder.id);
                     
                     await supabase.from('order_parts').delete().eq('order_id', selectedOrder.id);
                     const partsToInsert = modalParts.filter(p => p.name.trim() !== '').map(p => ({
@@ -578,8 +461,7 @@
             };
             
             const handleDeleteOrder = async (id) => {
-                if(window.confirm('YAKIN INGIN MENGHAPUS ORDER INI?\n\nData, Invoice, dan SEMUA FOTO/VIDEO di dalamnya akan terhapus permanen dari server.')) {
-                    await deleteFolderFiles(id);
+                if(window.confirm('YAKIN INGIN MENGHAPUS ORDER INI?\n\nData dan Invoice di dalamnya akan terhapus permanen dari server.')) {
                     await supabase.from('orders').delete().eq('id', id);
                     setOrders(orders.filter(o => o.id !== id));
                     setShowOrderModal(false);
@@ -592,6 +474,7 @@
                 const formData = new FormData(e.target);
                 const technician_name = formData.get('technician') || 'Belum Ditugaskan';
                 const maps_link = formData.get('maps_link') || '';
+                const vendor_name = formData.get('vendor_name') || '';
 
                 const newOrder = {
                     date: formData.get('date'), customer: formData.get('customer'),
@@ -600,6 +483,7 @@
                     technician_name: technician_name, status: 'Proses',
                     time_estimate: formData.get('time_estimate') || '',
                     maps_link: maps_link,
+                    vendor_name: vendor_name,
                     order_id_text: 'ORD-' + Math.floor(Math.random() * 10000)
                 };
                 const { data, error } = await supabase.from('orders').insert([newOrder]).select();
@@ -677,6 +561,28 @@
                 } catch (error) {
                     console.error("Gagal menambah teknisi:", error);
                     alert("Gagal menambahkan teknisi. Pastikan RLS sudah didisable di Supabase.");
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
+            const handleAddVendor = async (e) => {
+                e.preventDefault();
+                setIsSaving(true);
+                const formData = new FormData(e.target);
+                const name = formData.get('name');
+                const phone = formData.get('phone');
+
+                try {
+                    const { data, error } = await supabase.from('vendors').insert([{ name, phone }]).select();
+                    if (error) throw error;
+                    if (data) {
+                        setVendors([data[0], ...vendors]);
+                        setShowVendorModal(false);
+                    }
+                } catch (error) {
+                    console.error("Gagal menambah vendor:", error);
+                    alert("Gagal menambahkan vendor. Cek koneksi & tabel database.");
                 } finally {
                     setIsSaving(false);
                 }
@@ -766,7 +672,7 @@
                                           { id: 'jadwal', icon: 'fa-calendar-days', label: 'Jadwal & Order' },
                                           { id: 'keuangan', icon: 'fa-wallet', label: 'Arus Kas' },
                                           { id: 'tim', icon: 'fa-user-group', label: 'Tim Teknisi' },
-                                          { id: 'galeri', icon: 'fa-folder-open', label: 'Galeri & Bukti' }].map(item => (
+                                          { id: 'vendor', icon: 'fa-handshake', label: 'Mitra & Vendor' }].map(item => (
                                             <li key={item.id}>
                                                 <button onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all ${activeTab === item.id ? 'bg-red-600 text-white shadow-lg font-bold' : 'text-slate-400 hover:bg-slate-800 hover:text-white font-medium'}`}>
                                                     <i className={`fa-solid ${item.icon} w-5 text-center`}></i> <span className="text-sm">{item.label}</span>
@@ -816,6 +722,11 @@
                 sundayDate.setDate(mondayDate.getDate() + 6);
                 sundayDate.setHours(23,59,59,999);
                 
+                const nextMonday = new Date(mondayDate);
+                nextMonday.setDate(mondayDate.getDate() + 7);
+                const nextSunday = new Date(sundayDate);
+                nextSunday.setDate(sundayDate.getDate() + 7);
+
                 const firstDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth(), 1);
                 const lastDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth() + 1, 0);
 
@@ -838,6 +749,11 @@
                     filteredForTime = activeFiltered.filter(o => {
                         const d = new Date(o.date);
                         return d >= mondayDate && d <= sundayDate;
+                    });
+                } else if (dashTimeFilter === 'minggu_depan') {
+                    filteredForTime = activeFiltered.filter(o => {
+                        const d = new Date(o.date);
+                        return d >= nextMonday && d <= nextSunday;
                     });
                 } else if (dashTimeFilter === 'bulan_ini') {
                     filteredForTime = activeFiltered.filter(o => {
@@ -862,15 +778,16 @@
                                     <p className="text-[10px] text-red-600 font-black uppercase tracking-widest mt-1 bg-red-50 px-2 rounded-full w-full truncate border border-red-100">{new Date(o.date).toLocaleDateString('id-ID', {month:'short'})}</p>
                                 </div>
                                 <div className="overflow-hidden flex-1">
-                                    <div className="flex items-center gap-2">
-                                        <p className="font-black text-slate-800 text-base truncate">{o.customer}</p>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="font-black text-slate-800 text-base truncate max-w-[200px]">{o.customer}</p>
+                                        {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded uppercase font-black border border-purple-200"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
                                         {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
                                     </div>
                                     {o.time_estimate && <p className="text-[10px] text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
                                     <p className="text-xs font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
                                     <p className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
                                     <p className="text-[10px] font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-0.5 rounded border border-emerald-200">
-                                        <i className="fa-solid fa-rupiah-sign"></i> Potensi Pemasukan: {formatRupiah(totalPemasukan)}
+                                        <i className="fa-solid fa-rupiah-sign"></i> Potensi Tagihan: {formatRupiah(totalPemasukan)}
                                     </p>
                                 </div>
                             </div>
@@ -957,6 +874,7 @@
                                 <button onClick={() => setDashTimeFilter('semua')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua</button>
                                 <button onClick={() => setDashTimeFilter('hari_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
                                 <button onClick={() => setDashTimeFilter('minggu_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
+                                <button onClick={() => setDashTimeFilter('minggu_depan')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'minggu_depan' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Minggu Depan</button>
                                 <button onClick={() => setDashTimeFilter('bulan_ini')} className={`px-3 py-1 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'bulan_ini' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>Bulan Ini</button>
                             </div>
                         </div>
@@ -1004,6 +922,11 @@
                 sundayDate.setDate(mondayDate.getDate() + 6);
                 sundayDate.setHours(23,59,59,999);
 
+                const nextMonday = new Date(mondayDate);
+                nextMonday.setDate(mondayDate.getDate() + 7);
+                const nextSunday = new Date(sundayDate);
+                nextSunday.setDate(sundayDate.getDate() + 7);
+
                 let filteredOrders = orders;
                 
                 // Filter Global dari Dashboard
@@ -1019,6 +942,11 @@
                         filteredOrders = filteredOrders.filter(o => {
                             const d = new Date(o.date);
                             return d >= mondayDate && d <= sundayDate;
+                        });
+                    } else if (jadwalViewMode === 'minggu_depan') {
+                        filteredOrders = filteredOrders.filter(o => {
+                            const d = new Date(o.date);
+                            return d >= nextMonday && d <= nextSunday;
                         });
                     } else if (jadwalViewMode === 'tertunda') {
                         filteredOrders = filteredOrders.filter(o => o.date < todayStr);
@@ -1048,19 +976,6 @@
                         <button onClick={() => { setSelectedOrder(null); setModalParts([]); setShowOrderModal(true); }} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
                             <i className="fa-solid fa-plus"></i> Buat Order Baru
                         </button>
-                    </div>
-
-                    {/* Filter Global Tanggal */}
-                    <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-wrap items-center gap-4 shadow-sm">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-400 w-full sm:w-auto">Filter Tanggal (Global):</p>
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                            <input type="date" value={financeFilter.startDate} onChange={e => setFinanceFilter({...financeFilter, startDate: e.target.value})} className="p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-red-400 bg-slate-50" />
-                            <span className="text-slate-400 font-bold">-</span>
-                            <input type="date" value={financeFilter.endDate} onChange={e => setFinanceFilter({...financeFilter, endDate: e.target.value})} className="p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-red-400 bg-slate-50" />
-                            {(financeFilter.startDate || financeFilter.endDate) && (
-                                <button onClick={() => setFinanceFilter({...financeFilter, startDate: '', endDate: ''})} className="ml-2 bg-red-50 text-red-600 hover:bg-red-100 p-2 rounded-lg transition-colors"><i className="fa-solid fa-xmark"></i></button>
-                            )}
-                        </div>
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col">
@@ -1099,13 +1014,14 @@
                                 <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif</button>
                                 <button onClick={() => setJadwalViewMode('hari_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
                                 <button onClick={() => setJadwalViewMode('minggu_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
-                                <button onClick={() => setJadwalViewMode('tertunda')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'tertunda' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Tertunda / Lanjutan</button>
+                                <button onClick={() => setJadwalViewMode('minggu_depan')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_depan' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Minggu Depan</button>
+                                <button onClick={() => setJadwalViewMode('tertunda')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'tertunda' ? 'bg-red-600 text-white shadow-sm' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}>Tertunda / Lanjutan</button>
                             </div>
                         )}
 
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm min-w-[900px]">
-                                <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                                <thead className="bg-white text-slate-500 border-b border-slate-200">
                                     <tr>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider w-32">Hari & Tanggal</th>
                                         <th className="p-4 font-bold text-xs uppercase tracking-wider">Info Klien</th>
@@ -1124,11 +1040,8 @@
                                         const techObj = technicians.find(t => t.name === o.technician_name);
                                         const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
                                         const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
-                                        
-                                        // FITUR BARU: Template pesan WhatsApp Teknisi yang sangat komprehensif!
-                                        const mapsHref = o.maps_link ? o.maps_link : `https://maps.google.com/?q=${encodeURIComponent(o.address)}`;
-                                        const rawWaMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru!\n\n*👤 INFO KLIEN:*\nNama: ${o.customer}\nNo. HP: ${o.phone}\n\n*📍 JADWAL & LOKASI:*\nTanggal: ${dateStr}\nEstimasi Datang: ${o.time_estimate || '-'}\nAlamat: ${o.address}\nMaps: ${mapsHref}\n\n*🛠️ DETAIL PENGERJAAN:*\nUnit: ${o.unit}\nKendala: ${o.issue}\n\n*🔗 BUKA PORTAL TEKNISI:*\n(Wajib diklik untuk update progres pengerjaan)\n${magicLink}`;
-                                        const waTechMsg = encodeURIComponent(rawWaMsg);
+                                        const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
+                                        const waTechMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0ACek detailnya di portal teknisi kamu ya:%0A${magicLink}`;
 
                                         return (
                                         <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
@@ -1139,8 +1052,9 @@
                                                 <p className="text-[9px] text-slate-400 mt-1 font-bold">{o.order_id_text}</p>
                                             </td>
                                             <td className="p-4 align-top">
-                                                <div className="flex items-center gap-2 mb-1">
+                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
                                                     <p className="font-black text-slate-800">{o.customer}</p>
+                                                    {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded uppercase font-black border border-purple-200" title="Vendor"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
                                                     <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded hover:bg-emerald-100 transition-colors" title="Chat WA Klien"><i className="fa-brands fa-whatsapp"></i></a>
                                                     <button onClick={() => copyToClipboard(waPhone, 'Nomor WA Klien disalin!')} className="text-slate-400 hover:text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded transition-colors" title="Salin WA Klien"><i className="fa-regular fa-copy"></i></button>
                                                 </div>
@@ -1171,7 +1085,7 @@
                                                 }`}>{o.status}</span>
                                             </td>
                                             <td className="p-4 text-center align-top">
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
+                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
                                             </td>
                                         </tr>
                                     )})}
@@ -1184,64 +1098,115 @@
                 );
             };
 
-            const renderGaleri = () => {
-                const displayedGaleri = orders.filter(o => galeriTab === 'baru' ? !o.is_media_downloaded : o.is_media_downloaded);
+            const renderVendor = () => {
+                if (vendorView === 'detail' && selectedVendor) {
+                    const vendorOrders = orders.filter(o => o.vendor_name === selectedVendor.name);
+                    const lunasOrders = vendorOrders.filter(o => o.status === 'Lunas');
+                    const pendingOrders = vendorOrders.filter(o => o.status !== 'Lunas' && o.status !== 'Batal');
+                    
+                    const totalOmset = lunasOrders.reduce((sum, o) => {
+                        const parts = o.order_parts || [];
+                        return sum + parts.reduce((ps, p) => ps + (p.is_estimate ? 0 : Number(p.price)), 0);
+                    }, 0);
+                    
+                    const totalPiutang = pendingOrders.reduce((sum, o) => {
+                        const parts = o.order_parts || [];
+                        return sum + parts.reduce((ps, p) => ps + (p.is_estimate ? 0 : Number(p.price)), 0);
+                    }, 0);
+
+                    return (
+                        <div className="space-y-6 fade-in max-w-6xl mx-auto">
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => { setVendorView('list'); setSelectedVendor(null); }} className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold shadow-sm hover:bg-slate-50 transition-colors"><i className="fa-solid fa-arrow-left"></i> Kembali</button>
+                                <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight ml-2"><i className="fa-solid fa-building text-purple-600 mr-2"></i> {selectedVendor.name}</h2>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="bg-gradient-to-br from-green-500 to-green-700 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
+                                    <p className="text-green-100 text-xs font-black uppercase tracking-widest mb-1 opacity-90">Total Pendapatan (Lunas)</p>
+                                    <h3 className="text-3xl font-black truncate relative z-10">{formatRupiah(totalOmset)}</h3>
+                                    <i className="fa-solid fa-sack-dollar absolute -right-6 -bottom-6 text-8xl text-white/10"></i>
+                                </div>
+                                <div className="bg-gradient-to-br from-orange-400 to-orange-600 p-6 rounded-2xl text-white shadow-lg relative overflow-hidden">
+                                    <p className="text-orange-100 text-xs font-black uppercase tracking-widest mb-1 opacity-90">Potensi Tagihan (Belum Lunas)</p>
+                                    <h3 className="text-3xl font-black truncate relative z-10">{formatRupiah(totalPiutang)}</h3>
+                                    <i className="fa-solid fa-file-invoice-dollar absolute -right-6 -bottom-6 text-8xl text-white/10"></i>
+                                </div>
+                            </div>
+
+                            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+                                <div className="p-5 border-b border-slate-100 bg-slate-50">
+                                    <h3 className="font-black text-slate-800">Daftar Project dari {selectedVendor.name}</h3>
+                                    <p className="text-xs text-slate-500 mt-1">Riwayat lengkap orderan yang terhubung ke vendor ini.</p>
+                                </div>
+                                <div className="divide-y divide-slate-100">
+                                    {vendorOrders.map(o => (
+                                        <div key={o.id} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-slate-50 transition-colors">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest"><i className="fa-regular fa-calendar mr-1"></i> {new Date(o.date).toLocaleDateString('id-ID', {day:'numeric', month:'short', year:'numeric'})}</span>
+                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wider border shadow-sm ${
+                                                        o.status === 'Lunas' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-orange-50 text-orange-700 border-orange-200'
+                                                    }`}>{o.status}</span>
+                                                </div>
+                                                <p className="font-bold text-slate-800">{o.customer} <span className="text-slate-400 font-medium text-sm ml-2">{o.unit}</span></p>
+                                            </div>
+                                            <div className="font-black text-slate-800">
+                                                {formatRupiah((o.order_parts||[]).reduce((s, p)=>s + (p.is_estimate?0:Number(p.price)),0))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {vendorOrders.length === 0 && <div className="p-10 text-center text-slate-400 font-medium">Belum ada project dari vendor ini.</div>}
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
 
                 return (
                     <div className="space-y-6 fade-in max-w-6xl mx-auto">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                             <div>
-                                <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">Galeri & Bukti Pengerjaan</h2>
-                                <p className="text-slate-500 text-sm mt-1">Kelola file dokumentasi foto dan video dari lapangan.</p>
+                                <h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">Mitra & Vendor</h2>
+                                <p className="text-slate-500 text-sm mt-1">Kelola data vendor B2B dan tagihan kerjasamanya.</p>
                             </div>
+                            <button onClick={() => setShowVendorModal(true)} className="w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
+                                <i className="fa-solid fa-plus"></i> Tambah Vendor
+                            </button>
                         </div>
 
-                        <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-4 shadow-sm bg-blue-50/50">
-                            <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info mr-1"></i> Informasi Storage Folder</p>
-                            <p className="text-xs text-blue-600">Klik folder di bawah ini untuk melihat foto dan video. File bisa ditonton langsung dan didownload terpisah, atau ditarik semua menggunakan tombol Download ZIP.</p>
-                        </div>
-
-                        <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200 mb-4 w-fit">
-                            <button onClick={() => setGaleriTab('baru')} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${galeriTab === 'baru' ? 'bg-blue-50 text-blue-700 shadow-sm border border-blue-100' : 'text-slate-500 hover:text-slate-700'}`}>Belum Diunduh</button>
-                            <button onClick={() => setGaleriTab('arsip')} className={`px-4 py-2 text-sm font-bold rounded-lg transition-all ${galeriTab === 'arsip' ? 'bg-slate-100 text-slate-700 shadow-sm border border-slate-200' : 'text-slate-500 hover:text-slate-700'}`}>Arsip (Sudah Diunduh)</button>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                            {displayedGaleri.map(o => (
-                                <div key={o.id} onClick={() => { setSelectedGalleryFolder(o); fetchOrderFiles(o.id); }} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm flex flex-col hover:border-blue-400 hover:shadow-md transition-all group cursor-pointer relative overflow-hidden">
-                                    {o.is_media_downloaded && (
-                                        <div className="absolute top-3 right-3 text-emerald-500 bg-emerald-50 px-2 py-1 rounded text-[10px] font-black uppercase tracking-wider border border-emerald-200 shadow-sm z-10">
-                                            <i className="fa-solid fa-check-double"></i> Diunduh
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                            {vendors.map(v => {
+                                const vendorOrders = orders.filter(o => o.vendor_name === v.name);
+                                const activeCount = vendorOrders.filter(o => isOrderActive(o.status)).length;
+                                return (
+                                    <div key={v.id} onClick={() => { setSelectedVendor(v); setVendorView('detail'); }} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm relative flex flex-col hover:border-purple-400 hover:shadow-md transition-all cursor-pointer group overflow-hidden">
+                                        <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <i className="fa-solid fa-arrow-right text-purple-600"></i>
                                         </div>
-                                    )}
-                                    <div className="absolute top-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <i className="fa-solid fa-arrow-up-right-from-square text-blue-500"></i>
-                                    </div>
-                                    <div className="flex items-start gap-4 mb-3">
-                                        <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
-                                            <i className="fa-solid fa-folder-open text-blue-500 text-2xl"></i>
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <div className="w-14 h-14 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600 text-2xl shrink-0 group-hover:scale-110 transition-transform">
+                                                <i className="fa-solid fa-building"></i>
+                                            </div>
+                                            <div className="overflow-hidden">
+                                                <h3 className="font-black text-lg text-slate-800 truncate">{v.name}</h3>
+                                                <p className="text-xs text-slate-500 font-bold mt-0.5"><i className="fa-brands fa-whatsapp text-emerald-500"></i> {v.phone}</p>
+                                            </div>
                                         </div>
-                                        <div className="overflow-hidden pr-12">
-                                            <p className="font-black text-sm text-slate-800 truncate">{o.customer}</p>
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{o.order_id_text}</p>
+                                        <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 flex justify-between items-center mt-auto">
+                                            <div className="text-center flex-1 border-r border-slate-200">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Total Order</p>
+                                                <p className="font-black text-slate-700 text-lg leading-none mt-1">{vendorOrders.length}</p>
+                                            </div>
+                                            <div className="text-center flex-1">
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Aktif / Pending</p>
+                                                <p className="font-black text-orange-500 text-lg leading-none mt-1">{activeCount}</p>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="bg-slate-50 rounded-xl p-3 mb-4 text-xs font-medium text-slate-600 flex-1">
-                                        <p className="line-clamp-1 mb-1"><i className="fa-solid fa-location-dot opacity-50 mr-1"></i> {o.address}</p>
-                                        <p className="line-clamp-2"><i className="fa-solid fa-gear opacity-50 mr-1"></i> {o.unit} - <span className="text-red-500">{o.issue}</span></p>
-                                    </div>
-                                    <div className="flex justify-between items-center border-t border-slate-100 pt-3">
-                                        <span className="text-[10px] text-slate-400 font-bold">Ketuk Buka</span>
-                                        <span className="text-blue-600 text-[10px] font-bold uppercase tracking-wider">Isi Folder <i className="fa-solid fa-chevron-right ml-1"></i></span>
-                                    </div>
-                                </div>
-                            ))}
-                            {displayedGaleri.length === 0 && (
-                                <div className="col-span-full p-12 text-center text-slate-400">
-                                    <i className="fa-regular fa-folder-open text-4xl mb-3 block"></i>
-                                    <p className="text-sm font-bold">Belum ada folder dokumentasi di tab ini.</p>
-                                </div>
-                            )}
+                                )
+                            })}
+                            {vendors.length === 0 && <div className="col-span-full p-12 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 shadow-sm font-medium"><i className="fa-solid fa-handshake text-4xl mb-3 block"></i>Belum ada data vendor.</div>}
                         </div>
                     </div>
                 );
@@ -1459,7 +1424,7 @@
                             </div>
                             <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
-                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
+                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
                             </div>
                         </div>
                     );
@@ -1523,7 +1488,7 @@
                                             </div>
                                             <div className="flex-1 space-y-2">
                                                 {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
-                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); fetchOrderFiles(o.id); setShowOrderModal(true); }}>
+                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
                                                         <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
                                                         <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
                                                     </div>
@@ -1616,62 +1581,15 @@
                                                     <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat Teks</label>
                                                     <textarea name="address" rows="2" defaultValue={selectedOrder.address} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
                                                 </div>
-                                            </div>
-                                        )}
-
-                                        {role === 'admin' ? (
-                                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-solid fa-folder-open"></i> Bukti Pengerjaan (Dari Teknisi)</label>
-                                                {orderFiles.length > 0 ? (
-                                                    <div className="flex gap-3 overflow-x-auto pb-2">
-                                                        {orderFiles.map((file, i) => (
-                                                            <div key={i} className="w-24 h-24 shrink-0 rounded-xl border border-slate-200 overflow-hidden bg-slate-100 relative group">
-                                                                {file.metadata?.mimetype?.startsWith('video') ? (
-                                                                    <video src={file.publicUrl} className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <img src={file.publicUrl} className="w-full h-full object-cover" />
-                                                                )}
-                                                                <a href={file.publicUrl} target="_blank" className="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                    <i className="fa-solid fa-eye text-white text-xl"></i>
-                                                                </a>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <div className="border border-slate-200 rounded-xl p-6 text-center bg-slate-50 shadow-inner">
-                                                        <i className="fa-solid fa-image text-3xl text-slate-300 mb-2 block"></i>
-                                                        <p className="text-sm font-bold text-slate-500">Belum ada file bukti pengerjaan.</p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-solid fa-photo-film"></i> Upload Bukti Pengerjaan</label>
                                                 
-                                                {orderFiles.length > 0 && (
-                                                    <div className="flex gap-3 overflow-x-auto pb-3 mb-3 border-b border-slate-100">
-                                                        {orderFiles.map((file, i) => (
-                                                            <div key={i} className="w-16 h-16 shrink-0 rounded-lg border border-slate-200 overflow-hidden bg-slate-100 relative">
-                                                                {file.metadata?.mimetype?.startsWith('video') ? (
-                                                                    <video src={file.publicUrl} className="w-full h-full object-cover" />
-                                                                ) : (
-                                                                    <img src={file.publicUrl} className="w-full h-full object-cover" />
-                                                                )}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-
-                                                <label className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center bg-slate-50 cursor-pointer hover:bg-red-50 hover:border-red-300 transition-colors group block">
-                                                    <input type="file" multiple accept="image/*,video/*" className="hidden" onChange={(e) => handleFileUpload(e, selectedOrder.id)} disabled={isUploading} />
-                                                    {isUploading ? (
-                                                        <i className="fa-solid fa-circle-notch fa-spin text-4xl text-red-500 mb-3"></i>
-                                                    ) : (
-                                                        <i className="fa-solid fa-cloud-arrow-up text-4xl text-slate-300 group-hover:text-red-400 transition-colors mb-3"></i>
-                                                    )}
-                                                    <p className="text-sm font-black text-slate-700">{isUploading ? 'Sedang Mengupload...' : 'Ketuk untuk pilih Foto / Video'}</p>
-                                                    <p className="text-[10px] text-slate-500 font-bold mt-1.5">Bisa pilih lebih dari satu file sekaligus.</p>
-                                                </label>
+                                                <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                                    <label className="text-[9px] font-black text-purple-600 uppercase tracking-widest mb-1.5 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (B2B)</label>
+                                                    <select name="vendor_name" defaultValue={selectedOrder.vendor_name || ''} className="w-full p-3 border border-purple-200 rounded-xl text-sm font-bold bg-purple-50 outline-none focus:border-purple-500 text-purple-800">
+                                                        <option value="">-- Bukan dari Vendor (Reguler) --</option>
+                                                        {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                                                    </select>
+                                                    <p className="text-[10px] text-slate-400 mt-1">Jika order ini dari vendor/mitra, pilih nama vendornya di sini untuk tagihan.</p>
+                                                </div>
                                             </div>
                                         )}
 
@@ -1794,6 +1712,12 @@
                                     <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Estimasi Waktu Datang</label><input type="text" name="time_estimate" placeholder="Cth: 08:00 - 10:00" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
                                     
                                     <div className="pt-2 border-t border-slate-100">
+                                        <label className="text-[10px] font-black text-purple-600 uppercase tracking-widest ml-1 mb-1 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (Opsional)</label>
+                                        <select name="vendor_name" className="w-full border-2 border-purple-200 p-3.5 rounded-xl font-bold outline-none focus:border-purple-500 cursor-pointer bg-purple-50 text-purple-800 mb-4">
+                                            <option value="">-- Bukan dari Vendor (Reguler) --</option>
+                                            {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                                        </select>
+
                                         <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
                                             {isSaving ? 'Menyimpan...' : 'Simpan & Buat Order'}
                                         </button>
@@ -1803,64 +1727,29 @@
                         </div>
                     )}
 
-                    {/* Modal Pop-up Galeri Folder */}
-                    {selectedGalleryFolder && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md fade-in">
-                            <div className="bg-white rounded-2xl w-full max-w-4xl shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-[90vh]">
-                                <div className="bg-blue-50 border-b border-blue-100 p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
+                    {/* Modal Tambah Vendor Baru */}
+                    {showVendorModal && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden border border-slate-200">
+                                <div className="bg-purple-50 border-b border-purple-100 p-5 flex justify-between items-center">
+                                    <h3 className="font-black text-xl text-purple-800 flex items-center gap-2"><i className="fa-solid fa-handshake"></i> Tambah Mitra / Vendor</h3>
+                                    <button onClick={() => setShowVendorModal(false)} className="text-purple-400 hover:text-purple-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-purple-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
+                                </div>
+                                <form onSubmit={handleAddVendor} className="p-6 space-y-4">
                                     <div>
-                                        <h3 className="font-black text-xl text-blue-800 flex items-center gap-2"><i className="fa-solid fa-folder-open"></i> Isi Folder</h3>
-                                        <p className="text-xs text-blue-600 font-bold mt-0.5">{selectedGalleryFolder.customer} • {selectedGalleryFolder.unit}</p>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Vendor / Perusahaan</label>
+                                        <input type="text" name="name" required placeholder="Cth: Fitbox" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50" />
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                                        <label className="flex-1 sm:flex-none flex items-center justify-center gap-2 text-sm font-bold text-slate-700 cursor-pointer bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm hover:bg-slate-50 transition-colors">
-                                            <input type="checkbox" checked={selectedGalleryFolder.is_media_downloaded || false} onChange={() => toggleMediaDownloaded(selectedGalleryFolder.id, selectedGalleryFolder.is_media_downloaded)} className="accent-blue-600 w-4 h-4 cursor-pointer" />
-                                            Sudah Diunduh
-                                        </label>
-
-                                        {orderFiles.length > 0 && (
-                                            <button onClick={() => handleDownloadZip(selectedGalleryFolder)} disabled={isZipping} className="flex-1 sm:flex-none bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-md transition-colors flex justify-center items-center gap-2 disabled:opacity-50">
-                                                {isZipping ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Zipping...</> : <><i className="fa-solid fa-file-zipper"></i> Download ZIP</>}
-                                            </button>
-                                        )}
-                                        
-                                        {orderFiles.length > 0 && (
-                                            <button onClick={() => handleEmptyGallery(selectedGalleryFolder.id)} className="flex-1 sm:flex-none bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition-colors flex justify-center items-center gap-2">
-                                                <i className="fa-solid fa-trash-can"></i> Hapus Media
-                                            </button>
-                                        )}
-
-                                        <button onClick={() => setSelectedGalleryFolder(null)} className="text-blue-400 hover:text-blue-800 bg-white p-2 w-10 h-10 flex items-center justify-center rounded-full border border-blue-200 shadow-sm transition-colors shrink-0"><i className="fa-solid fa-xmark"></i></button>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nomor Kontak (Opsional)</label>
+                                        <input type="text" name="phone" placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50" />
                                     </div>
-                                </div>
-                                <div className="p-6 overflow-y-auto flex-1 bg-slate-100">
-                                    {orderFiles.length > 0 ? (
-                                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                                            {orderFiles.map((file, i) => (
-                                                <div key={i} className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm group">
-                                                    <div className="aspect-square bg-slate-200 relative">
-                                                        {file.metadata?.mimetype?.startsWith('video') ? (
-                                                            <video src={file.publicUrl} controls className="w-full h-full object-cover" />
-                                                        ) : (
-                                                            <img src={file.publicUrl} className="w-full h-full object-cover" />
-                                                        )}
-                                                    </div>
-                                                    <div className="p-3">
-                                                        <a href={file.publicUrl} target="_blank" download className="w-full bg-blue-50 hover:bg-blue-600 text-blue-600 hover:text-white border border-blue-200 hover:border-blue-600 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors">
-                                                            <i className="fa-solid fa-download"></i> Unduh File
-                                                        </a>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    ) : (
-                                        <div className="border border-slate-200 rounded-xl bg-white p-16 text-center shadow-sm">
-                                            <i className="fa-regular fa-images text-6xl text-slate-300 mb-4 block"></i>
-                                            <p className="font-bold text-slate-600 text-lg mb-1">Belum ada file di folder ini.</p>
-                                            <p className="text-xs text-slate-400 font-medium max-w-sm mx-auto">Media foto dan video yang diunggah oleh teknisi saat pengerjaan akan muncul di sini.</p>
-                                        </div>
-                                    )}
-                                </div>
+                                    <div className="pt-4 border-t border-slate-100">
+                                        <button type="submit" disabled={isSaving} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-purple-600/30 transition-transform active:scale-95 disabled:opacity-50">
+                                            {isSaving ? 'Menyimpan...' : 'Simpan Vendor'}
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     )}
@@ -2011,7 +1900,7 @@
                         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 pb-24 no-print relative">
                             {role === 'admin' && activeTab === 'dashboard' && renderDashboard()}
                             {role === 'admin' && activeTab === 'jadwal' && renderJadwal()}
-                            {role === 'admin' && activeTab === 'galeri' && renderGaleri()}
+                            {role === 'admin' && activeTab === 'vendor' && renderVendor()}
                             {role === 'admin' && activeTab === 'keuangan' && renderKeuangan()}
                             {role === 'admin' && activeTab === 'tim' && renderTim()}
                             
