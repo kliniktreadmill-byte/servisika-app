@@ -313,7 +313,7 @@
                         <div className={`flex flex-row justify-between border-b-2 ${borderBrandColor} pb-6 mb-8 gap-4`}>
                             <div>
                                 {isHarmoni ? (
-                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-20 object-contain object-left mb-1" />
+                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-12 object-contain object-left mb-1" />
                                 ) : (
                                     <h1 className={`text-4xl font-black ${titleColor} m-0 tracking-tighter uppercase`}>SERVISIKA</h1>
                                 )}
@@ -412,7 +412,7 @@
                                     <img 
                                         src="https://i.imghippo.com/files/aEO3285DJU.png" 
                                         alt="Tanda Tangan Servisika" 
-                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[45%] -translate-y-[48%] z-0 pointer-events-none" 
+                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" 
                                     />
                                     <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">{ttdName}</p>
                                 </div>
@@ -1171,6 +1171,11 @@
                                     <i className="fa-solid fa-search text-slate-400 text-xs ml-1"></i>
                                     <input type="text" value={jadwalSearch} onChange={e => setJadwalSearch(e.target.value)} placeholder="Cari klien, unit, atau ID..." className="p-2 text-xs font-bold text-slate-600 outline-none w-full bg-transparent" />
                                 </div>
+                                <select value={jadwalFilterVendor} onChange={e => setJadwalFilterVendor(e.target.value)} className="flex-1 sm:w-32 bg-white border border-purple-200 p-2 rounded-lg text-xs font-bold text-purple-700 outline-none focus:border-purple-400">
+                                    <option value="">Semua Vendor</option>
+                                    <option value="Reguler">Reguler (Bukan Vendor)</option>
+                                    {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
+                                </select>
                                 <select value={jadwalFilterTech} onChange={e => setJadwalFilterTech(e.target.value)} className="flex-1 sm:w-32 bg-white border border-slate-200 p-2 rounded-lg text-xs font-bold text-slate-600 outline-none focus:border-red-400">
                                     <option value="">Semua Teknisi</option>
                                     <option value="Belum Ditugaskan">Belum Ditugaskan</option>
