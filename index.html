@@ -101,6 +101,7 @@
             const [jadwalViewMode, setJadwalViewMode] = useState(() => localStorage.getItem('svk_jadwalViewMode') || 'semua'); 
             const [jadwalFilterTech, setJadwalFilterTech] = useState(() => localStorage.getItem('svk_jadwalFilterTech') || '');
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState(() => localStorage.getItem('svk_jadwalFilterStatus') || '');
+            const [jadwalFilterVendor, setJadwalFilterVendor] = useState(() => localStorage.getItem('svk_jadwalFilterVendor') || '');
             const [jadwalSearch, setJadwalSearch] = useState(() => localStorage.getItem('svk_jadwalSearch') || '');
             
             const [financeFilter, setFinanceFilter] = useState(() => {
@@ -130,6 +131,7 @@
             useEffect(() => { localStorage.setItem('svk_jadwalViewMode', jadwalViewMode); }, [jadwalViewMode]);
             useEffect(() => { localStorage.setItem('svk_jadwalFilterTech', jadwalFilterTech); }, [jadwalFilterTech]);
             useEffect(() => { localStorage.setItem('svk_jadwalFilterStatus', jadwalFilterStatus); }, [jadwalFilterStatus]);
+            useEffect(() => { localStorage.setItem('svk_jadwalFilterVendor', jadwalFilterVendor); }, [jadwalFilterVendor]);
             useEffect(() => { localStorage.setItem('svk_jadwalSearch', jadwalSearch); }, [jadwalSearch]);
             useEffect(() => { localStorage.setItem('svk_financeFilter', JSON.stringify(financeFilter)); }, [financeFilter]);
 
@@ -313,7 +315,7 @@
                         <div className={`flex flex-row justify-between border-b-2 ${borderBrandColor} pb-6 mb-8 gap-4`}>
                             <div>
                                 {isHarmoni ? (
-                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-12 object-contain object-left mb-1" />
+                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-16 object-contain object-left mb-1" />
                                 ) : (
                                     <h1 className={`text-4xl font-black ${titleColor} m-0 tracking-tighter uppercase`}>SERVISIKA</h1>
                                 )}
@@ -412,9 +414,9 @@
                                     <img 
                                         src="https://i.imghippo.com/files/aEO3285DJU.png" 
                                         alt="Tanda Tangan Servisika" 
-                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[42%] -translate-y-[40%] z-0 pointer-events-none" 
+                                        className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[50%] -translate-y-[53%] z-0 pointer-events-none" 
                                     />
-                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">{ttdName}</p>
+                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">Admin Servisika</p>
                                 </div>
                             </div>
                         </div>
@@ -481,19 +483,62 @@
                     return '';
                 };
 
+                const extractDate = (lines) => {
+                    for (let line of lines) {
+                        const dateMatch = line.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})/);
+                        if (dateMatch) {
+                            let day = dateMatch[1];
+                            let month = dateMatch[2];
+                            let year = dateMatch[3];
+                            if (day.length === 4) return `${day}-${month.padStart(2, '0')}-${year.padStart(2, '0')}`;
+                            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                        }
+                    }
+                    return '';
+                };
+
                 blocks.forEach(block => {
                     if (!block.trim()) return;
                     const lines = block.split('\n').filter(l => l.trim() !== '');
                     
+                    let orderDate = extractValue(lines, ['tanggal', 'tgl', 'date']);
+                    let parsedDate = getLocalDateString(new Date());
+                    
+                    if (orderDate) {
+                        const dMatch = orderDate.match(/(\d{1,2})[\/\-\s]+([a-zA-Z]+|\d{1,2})[\/\-\s]+(\d{4})/);
+                        if (dMatch) {
+                           parsedDate = extractDate(lines) || getLocalDateString(new Date());
+                        } else {
+                           parsedDate = extractDate(lines) || getLocalDateString(new Date());
+                        }
+                    } else {
+                        parsedDate = extractDate(lines) || getLocalDateString(new Date());
+                    }
+
+                    let mapsLink = extractValue(lines, ['maps', 'shareloc', 'link maps', 'lokasi', 'gmaps', 'https://maps']);
+                    let address = extractValue(lines, ['alamat', 'lokasi', 'site']);
+                    
+                    // Ekstrak URL dari alamat jika tergabung
+                    if (address.includes('http')) {
+                        const urls = address.match(/(https?:\/\/[^\s]+)/g);
+                        if (urls && urls.length > 0) {
+                            mapsLink = urls[0];
+                            address = address.replace(urls[0], '').trim();
+                        }
+                    }
+                    
+                    if(!address && mapsLink) address = "Lihat Link Maps";
+
                     let order = { 
                         id: Date.now() + Math.random(), 
                         customer: extractValue(lines, ['nama', 'klien', 'customer', 'atas nama']), 
                         phone: extractValue(lines, ['hp', 'wa', 'whatsapp', 'telepon', 'no']), 
-                        date: getLocalDateString(new Date()), 
+                        date: parsedDate, 
                         time_estimate: extractValue(lines, ['estimasi', 'waktu', 'jam']), 
                         unit: extractValue(lines, ['unit', 'alat', 'mesin', 'tipe']), 
                         issue: extractValue(lines, ['kendala', 'keluhan', 'rusak', 'masalah', 'error']), 
-                        address: extractValue(lines, ['alamat', 'lokasi', 'site']), 
+                        address: address, 
+                        maps_link: mapsLink,
                         vendor_name: '' 
                     };
 
@@ -525,7 +570,7 @@
                         technician_name: 'Belum Ditugaskan',
                         status: 'Proses',
                         time_estimate: o.time_estimate || '',
-                        maps_link: '',
+                        maps_link: o.maps_link || '',
                         vendor_name: o.vendor_name || '',
                         order_id_text: 'ORD-' + Math.floor(Math.random() * 10000)
                     }));
@@ -1106,8 +1151,13 @@
 
                 let filteredOrders = orders;
                 
-                if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
-                if (financeFilter.endDate) filteredOrders = filteredOrders.filter(o => o.date <= financeFilter.endDate);
+                // BYPASS DATE FILTER JIKA STATUS KHUSUS DIPILIH
+                const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang'].some(s => jadwalFilterStatus.includes(s));
+
+                if (!bypassDateFilter) {
+                    if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
+                    if (financeFilter.endDate) filteredOrders = filteredOrders.filter(o => o.date <= financeFilter.endDate);
+                }
 
                 filteredOrders = filteredOrders.filter(o => jadwalTab === 'aktif' ? isOrderActive(o.status) || o.status.includes('Komplain') : ['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain'));
                 
@@ -1126,6 +1176,15 @@
                         });
                     } else if (jadwalViewMode === 'tertunda') {
                         filteredOrders = filteredOrders.filter(o => o.date < todayStr);
+                    }
+                }
+
+                // FILTER VENDOR BARU
+                if (jadwalFilterVendor) {
+                    if (jadwalFilterVendor === 'Reguler') {
+                        filteredOrders = filteredOrders.filter(o => !o.vendor_name);
+                    } else {
+                        filteredOrders = filteredOrders.filter(o => o.vendor_name === jadwalFilterVendor);
                     }
                 }
 
@@ -1658,68 +1717,38 @@
                         </div>
 
                         {jadwalTab === 'list' ? (
-                            <div className="space-y-4">
-                                {myOrders.map(o => {
-                                    const finalWaPhone = getCleanPhone(o.phone);
-                                    const mapsHref = o.maps_link ? o.maps_link : `https://maps.google.com/?q=${encodeURIComponent(o.address)}`;
-                                    return (
-                                        <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
-                                            <div className={`absolute top-0 left-0 w-1.5 h-full ${
-                                                o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
-                                                o.status.includes('Komplain') ? 'bg-orange-500' :
-                                                o.status.includes('Selesai') ? 'bg-emerald-500' : 
-                                                'bg-red-500'
-                                            }`}></div>
-                                            <div className="p-5 pb-4">
-                                                <div className="flex justify-between items-start mb-4">
-                                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
-                                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
-                                                        o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                                        o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                        o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                                        'bg-red-50 text-red-700 border-red-200'
-                                                    }`}>{o.status}</span>
-                                                </div>
-                                                
-                                                <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
-                                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
-                                                <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
-                                                
-                                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
-                                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1.5 flex items-center gap-1"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Kendala Laporan:</p>
-                                                    <p className="font-bold text-slate-800 text-sm leading-relaxed">{o.issue}</p>
-                                                </div>
+                            <div className="space-y-6">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <i className="fa-solid fa-calendar-day"></i> Jadwal Hari Ini & Mendatang
+                                    </h3>
+                                    <div className="space-y-4">
+                                        {upcomingOrders.map(renderTechOrderCard)}
+                                        {upcomingOrders.length === 0 && (
+                                            <div className="text-center bg-white border border-slate-200 rounded-2xl p-10 shadow-sm">
+                                                <i className="fa-regular fa-face-smile text-4xl text-slate-300 mb-3 block"></i>
+                                                <p className="text-slate-800 font-bold text-sm mb-1">Jadwal Kosong</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
 
-                                                <div className="flex gap-2">
-                                                    <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
-                                                        <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
-                                                    </a>
-                                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
-                                                        <i className="fa-regular fa-copy text-lg"></i>
-                                                    </button>
-                                                    <a href={mapsHref} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
-                                                        <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
-                                                    </a>
-                                                </div>
-                                            </div>
-                                            <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                                                <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
-                                            </div>
+                                {overdueOrders.length > 0 && (
+                                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl">
+                                        <h3 className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <i className="fa-solid fa-clock-rotate-left"></i> Pengerjaan Tertunda / Berlanjut
+                                        </h3>
+                                        <div className="space-y-4">
+                                            {overdueOrders.map(renderTechOrderCard)}
                                         </div>
-                                    )
-                                })}
-                                {myOrders.length === 0 && (
-                                    <div className="text-center bg-white border border-slate-200 rounded-2xl p-12 shadow-sm">
-                                        <i className="fa-regular fa-face-smile text-5xl text-slate-300 mb-4 block"></i>
-                                        <p className="text-slate-800 font-bold text-lg mb-1">Pekerjaan Beres!</p>
-                                        <p className="text-slate-500 font-medium text-sm">Tidak ada antrean tugas saat ini.</p>
                                     </div>
                                 )}
                             </div>
                         ) : (
                             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
-                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2"><i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan</h3>
+                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2">
+                                    <i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan
+                                </h3>
                                 <div className="space-y-4">
                                     {weeklySchedule.map((dayData) => (
                                         <div key={dayData.dateStr} className="flex gap-4 items-start border-l-2 border-slate-100 pl-4 py-1 relative">
@@ -1830,7 +1859,6 @@
                                                         <option value="">-- Bukan dari Vendor (Reguler) --</option>
                                                         {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
                                                     </select>
-                                                    <p className="text-[10px] text-slate-400 mt-1">Jika order ini dari vendor/mitra, pilih nama vendornya di sini untuk tagihan.</p>
                                                 </div>
                                             </div>
                                         )}
@@ -1941,7 +1969,7 @@
                                                 <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info"></i> Format Teks yang Disarankan</p>
                                                 <p className="text-xs text-blue-600 font-medium">
                                                     Paste pesan chat Klien ke kotak di bawah. Pisahkan jadwal yang berbeda dengan menekan <b>Enter dua kali</b> (baris kosong).<br/>
-                                                    Gunakan format penanda seperti: <b>Nama:, HP:, Waktu:, Unit:, Kendala:, Alamat:</b> agar AI lebih mudah membaca.
+                                                    Gunakan format penanda seperti: <b>Nama:, HP:, Tanggal:, Waktu:, Unit:, Kendala:, Alamat:, Maps:</b> agar AI lebih mudah membaca.
                                                 </p>
                                             </div>
                                             
@@ -1949,7 +1977,7 @@
                                                 value={bulkText} 
                                                 onChange={e => setBulkText(e.target.value)} 
                                                 className="w-full h-64 p-5 border border-slate-300 rounded-xl font-medium text-sm outline-none focus:border-blue-500 shadow-inner resize-none bg-white" 
-                                                placeholder="Paste teks chat jadwal di sini...&#10;&#10;Contoh:&#10;Nama: Bapak Budi&#10;HP: 0812345678&#10;Jam: 10:00 - 12:00&#10;Unit: Treadmill Kettler&#10;Kendala: Error E02 karpet macet&#10;Alamat: Jl. Sudirman No 12"
+                                                placeholder="Paste teks chat jadwal di sini...&#10;&#10;Contoh:&#10;Nama: Bapak Budi&#10;HP: 0812345678&#10;Tanggal: 28-08-2026&#10;Waktu: 10:00 - 12:00&#10;Unit: Treadmill Kettler&#10;Kendala: Error E02 karpet macet&#10;Alamat: Jl. Sudirman No 12&#10;Maps: https://maps.app.goo.gl/xxx"
                                             ></textarea>
                                             
                                             <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
@@ -1987,7 +2015,7 @@
                                                         <tr>
                                                             <th className="p-3 font-black text-[10px] uppercase tracking-widest w-48">Info Klien</th>
                                                             <th className="p-3 font-black text-[10px] uppercase tracking-widest w-48">Unit & Kendala</th>
-                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest">Alamat Lengkap</th>
+                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest">Alamat Lengkap & Maps</th>
                                                             <th className="p-3 font-black text-[10px] uppercase tracking-widest w-40">Waktu & Vendor</th>
                                                             <th className="p-3 font-black text-[10px] uppercase tracking-widest text-center w-16">Aksi</th>
                                                         </tr>
@@ -2009,8 +2037,9 @@
                                                                     <input type="text" value={o.unit} onChange={(e) => { const n = [...parsedOrders]; n[idx].unit = e.target.value; setParsedOrders(n); }} placeholder="Unit Alat (Contoh: Treadmill)" className="w-full border border-slate-200 rounded-lg p-2 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
                                                                     <input type="text" value={o.issue} onChange={(e) => { const n = [...parsedOrders]; n[idx].issue = e.target.value; setParsedOrders(n); }} placeholder="Detail Kendala" className="w-full border border-orange-200 rounded-lg p-2 text-xs font-bold bg-orange-50 focus:border-orange-400 outline-none text-orange-700 shadow-sm" />
                                                                 </td>
-                                                                <td className="p-3 align-top">
-                                                                    <textarea rows="3" value={o.address} onChange={(e) => { const n = [...parsedOrders]; n[idx].address = e.target.value; setParsedOrders(n); }} placeholder="Alamat lengkap tujuan..." className="w-full border border-slate-200 rounded-lg p-2 text-xs font-medium bg-white focus:border-blue-400 outline-none resize-none shadow-sm h-[68px]"></textarea>
+                                                                <td className="p-3 align-top space-y-2">
+                                                                    <textarea rows="3" value={o.address} onChange={(e) => { const n = [...parsedOrders]; n[idx].address = e.target.value; setParsedOrders(n); }} placeholder="Alamat lengkap..." className="w-full border border-slate-200 rounded-lg p-2 text-xs font-medium bg-white focus:border-blue-400 outline-none resize-none shadow-sm h-[48px]"></textarea>
+                                                                    <input type="url" value={o.maps_link || ''} onChange={(e) => { const n = [...parsedOrders]; n[idx].maps_link = e.target.value; setParsedOrders(n); }} placeholder="Link Google Maps..." className="w-full border border-slate-200 rounded-lg p-2 text-xs font-medium bg-white focus:border-blue-400 outline-none shadow-sm" />
                                                                 </td>
                                                                 <td className="p-3 align-top space-y-2">
                                                                     <input type="date" value={o.date} onChange={(e) => { const n = [...parsedOrders]; n[idx].date = e.target.value; setParsedOrders(n); }} className="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
