@@ -98,11 +98,15 @@
             const [dashTimeFilter, setDashTimeFilter] = useState(() => localStorage.getItem('svk_dashTimeFilter') || 'semua');
             
             const [jadwalTab, setJadwalTab] = useState(() => localStorage.getItem('svk_jadwalTab') || 'aktif'); 
+            const [jadwalViewLayout, setJadwalViewLayout] = useState(() => localStorage.getItem('svk_jadwalViewLayout') || 'list');
             const [jadwalViewMode, setJadwalViewMode] = useState(() => localStorage.getItem('svk_jadwalViewMode') || 'semua'); 
             const [jadwalFilterTech, setJadwalFilterTech] = useState(() => localStorage.getItem('svk_jadwalFilterTech') || '');
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState(() => localStorage.getItem('svk_jadwalFilterStatus') || '');
             const [jadwalFilterVendor, setJadwalFilterVendor] = useState(() => localStorage.getItem('svk_jadwalFilterVendor') || '');
             const [jadwalSearch, setJadwalSearch] = useState(() => localStorage.getItem('svk_jadwalSearch') || '');
+            
+            const [calendarViewMode, setCalendarViewMode] = useState(() => localStorage.getItem('svk_calendarViewMode') || 'month');
+            const [calendarDate, setCalendarDate] = useState(new Date());
             
             const [financeFilter, setFinanceFilter] = useState(() => {
                 const saved = localStorage.getItem('svk_financeFilter');
@@ -119,7 +123,7 @@
 
             // State Input Massal (Bulk Order)
             const [showBulkModal, setShowBulkModal] = useState(false);
-            const [bulkStep, setBulkStep] = useState('input'); // 'input' atau 'preview'
+            const [bulkStep, setBulkStep] = useState('input');
             const [bulkText, setBulkText] = useState('');
             const [parsedOrders, setParsedOrders] = useState([]);
             const [isProcessingOCR, setIsProcessingOCR] = useState(false);
@@ -128,12 +132,14 @@
             useEffect(() => { if(dashFilter) localStorage.setItem('svk_dashFilter', dashFilter); else localStorage.removeItem('svk_dashFilter'); }, [dashFilter]);
             useEffect(() => { localStorage.setItem('svk_dashTimeFilter', dashTimeFilter); }, [dashTimeFilter]);
             useEffect(() => { localStorage.setItem('svk_jadwalTab', jadwalTab); }, [jadwalTab]);
+            useEffect(() => { localStorage.setItem('svk_jadwalViewLayout', jadwalViewLayout); }, [jadwalViewLayout]);
             useEffect(() => { localStorage.setItem('svk_jadwalViewMode', jadwalViewMode); }, [jadwalViewMode]);
             useEffect(() => { localStorage.setItem('svk_jadwalFilterTech', jadwalFilterTech); }, [jadwalFilterTech]);
             useEffect(() => { localStorage.setItem('svk_jadwalFilterStatus', jadwalFilterStatus); }, [jadwalFilterStatus]);
             useEffect(() => { localStorage.setItem('svk_jadwalFilterVendor', jadwalFilterVendor); }, [jadwalFilterVendor]);
             useEffect(() => { localStorage.setItem('svk_jadwalSearch', jadwalSearch); }, [jadwalSearch]);
             useEffect(() => { localStorage.setItem('svk_financeFilter', JSON.stringify(financeFilter)); }, [financeFilter]);
+            useEffect(() => { localStorage.setItem('svk_calendarViewMode', calendarViewMode); }, [calendarViewMode]);
 
             const [showOrderModal, setShowOrderModal] = useState(false);
             const [selectedOrder, setSelectedOrder] = useState(null);
@@ -416,7 +422,7 @@
                                         alt="Tanda Tangan Servisika" 
                                         className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[50%] -translate-y-[53%] z-0 pointer-events-none" 
                                     />
-                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">Admin Servisika</p>
+                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">{ttdName}</p>
                                 </div>
                             </div>
                         </div>
@@ -960,6 +966,7 @@
                 else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
                 else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
+                // Terapkan Filter Tanggal Global ke Dashboard jika ada
                 if (financeFilter.startDate) displayOrders = displayOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) displayOrders = displayOrders.filter(o => o.date <= financeFilter.endDate);
 
@@ -1149,48 +1156,16 @@
                 const nextSunday = new Date(sundayDate);
                 nextSunday.setDate(sundayDate.getDate() + 7);
 
-                let filteredOrders = orders;
-                
-                // BYPASS DATE FILTER JIKA STATUS KHUSUS DIPILIH
-                const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang'].some(s => jadwalFilterStatus.includes(s));
+                // Filter Base (Aktif / Arsip)
+                let filteredOrders = orders.filter(o => jadwalTab === 'aktif' ? (isOrderActive(o.status) || o.status.includes('Komplain')) : (['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain')));
 
-                if (!bypassDateFilter) {
-                    if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
-                    if (financeFilter.endDate) filteredOrders = filteredOrders.filter(o => o.date <= financeFilter.endDate);
-                }
-
-                filteredOrders = filteredOrders.filter(o => jadwalTab === 'aktif' ? isOrderActive(o.status) || o.status.includes('Komplain') : ['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain'));
-                
-                if (jadwalTab === 'aktif') {
-                    if (jadwalViewMode === 'hari_ini') {
-                        filteredOrders = filteredOrders.filter(o => o.date === todayStr);
-                    } else if (jadwalViewMode === 'minggu_ini') {
-                        filteredOrders = filteredOrders.filter(o => {
-                            const d = new Date(o.date);
-                            return d >= mondayDate && d <= sundayDate;
-                        });
-                    } else if (jadwalViewMode === 'minggu_depan') {
-                        filteredOrders = filteredOrders.filter(o => {
-                            const d = new Date(o.date);
-                            return d >= nextMonday && d <= nextSunday;
-                        });
-                    } else if (jadwalViewMode === 'tertunda') {
-                        filteredOrders = filteredOrders.filter(o => o.date < todayStr);
-                    }
-                }
-
-                // FILTER VENDOR BARU
-                if (jadwalFilterVendor) {
-                    if (jadwalFilterVendor === 'Reguler') {
-                        filteredOrders = filteredOrders.filter(o => !o.vendor_name);
-                    } else {
-                        filteredOrders = filteredOrders.filter(o => o.vendor_name === jadwalFilterVendor);
-                    }
-                }
-
+                // UNIVERSAL FILTERS (Search, Tech, Vendor, Status) - Berlaku untuk List & Calendar
                 if (jadwalFilterTech) filteredOrders = filteredOrders.filter(o => o.technician_name === jadwalFilterTech);
                 if (jadwalFilterStatus) filteredOrders = filteredOrders.filter(o => o.status === jadwalFilterStatus);
-                
+                if (jadwalFilterVendor) {
+                    if (jadwalFilterVendor === 'Reguler') filteredOrders = filteredOrders.filter(o => !o.vendor_name);
+                    else filteredOrders = filteredOrders.filter(o => o.vendor_name === jadwalFilterVendor);
+                }
                 if (jadwalSearch) {
                     const s = jadwalSearch.toLowerCase();
                     filteredOrders = filteredOrders.filter(o => 
@@ -1200,6 +1175,167 @@
                         (o.phone && o.phone.includes(s))
                     );
                 }
+
+                // DATE FILTERS HANYA UNTUK TAMPILAN LIST (Calendar mengatur tanggalnya sendiri)
+                let listFilteredOrders = filteredOrders;
+                if (jadwalViewLayout === 'list') {
+                    const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang'].some(s => jadwalFilterStatus.includes(s));
+                    if (!bypassDateFilter) {
+                        if (financeFilter.startDate) listFilteredOrders = listFilteredOrders.filter(o => o.date >= financeFilter.startDate);
+                        if (financeFilter.endDate) listFilteredOrders = listFilteredOrders.filter(o => o.date <= financeFilter.endDate);
+                    }
+                    
+                    if (jadwalTab === 'aktif') {
+                        if (jadwalViewMode === 'hari_ini') listFilteredOrders = listFilteredOrders.filter(o => o.date === todayStr);
+                        else if (jadwalViewMode === 'minggu_ini') listFilteredOrders = listFilteredOrders.filter(o => {
+                            const d = new Date(o.date); return d >= mondayDate && d <= sundayDate;
+                        });
+                        else if (jadwalViewMode === 'minggu_depan') listFilteredOrders = listFilteredOrders.filter(o => {
+                            const d = new Date(o.date); return d >= nextMonday && d <= nextSunday;
+                        });
+                        else if (jadwalViewMode === 'tertunda') listFilteredOrders = listFilteredOrders.filter(o => o.date < todayStr);
+                    }
+                }
+
+                // SUB-COMPONENT: CALENDAR VIEW
+                const renderCalendar = () => {
+                    const getShortLocation = (address) => {
+                        if (!address) return '';
+                        const parts = address.split(/[,.-]/);
+                        let target = parts.length > 1 ? parts[parts.length - 1].trim() : address;
+                        target = target.replace(/Kota|Kabupaten|Kecamatan|Kec\.|Kab\./gi, '').trim();
+                        const words = target.split(' ');
+                        if (words.length > 2) return words.slice(-2).join(' ');
+                        return target;
+                    };
+
+                    const year = calendarDate.getFullYear();
+                    const month = calendarDate.getMonth();
+                    
+                    const prevPeriod = () => {
+                        const newDate = new Date(calendarDate);
+                        if (calendarViewMode === 'month') newDate.setMonth(newDate.getMonth() - 1);
+                        else newDate.setDate(newDate.getDate() - 7);
+                        setCalendarDate(newDate);
+                    };
+                    const nextPeriod = () => {
+                        const newDate = new Date(calendarDate);
+                        if (calendarViewMode === 'month') newDate.setMonth(newDate.getMonth() + 1);
+                        else newDate.setDate(newDate.getDate() + 7);
+                        setCalendarDate(newDate);
+                    };
+                    const goToToday = () => setCalendarDate(new Date());
+
+                    const dayNames = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+                    const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+
+                    const getStatusColor = (status) => {
+                        if (status === 'Proses' || status === 'Pengerjaan Lanjutan') return 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200';
+                        if (status.includes('Komplain')) return 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200';
+                        if (status.includes('Lunas')) return 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200';
+                        if (status.includes('Selesai')) return 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200';
+                        return 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200';
+                    };
+
+                    const renderEventCard = (o) => (
+                        <div key={o.id} onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} 
+                             className={`p-1.5 mb-1 rounded border text-[10px] font-bold cursor-pointer transition-colors shadow-sm leading-tight ${getStatusColor(o.status)}`}
+                             title={`${o.customer} - ${o.unit} \n${o.address}`}>
+                            <div className="truncate">{o.customer.split(' ')[0]} • {getShortLocation(o.address)}</div>
+                            {o.time_estimate && <div className="text-[9px] font-medium opacity-80 mt-0.5"><i className="fa-regular fa-clock"></i> {o.time_estimate}</div>}
+                        </div>
+                    );
+
+                    let calendarContent;
+                    if (calendarViewMode === 'month') {
+                        const firstDay = new Date(year, month, 1).getDay();
+                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                        let startOffset = firstDay === 0 ? 6 : firstDay - 1;
+                        
+                        const cells = [];
+                        for (let i = 0; i < startOffset; i++) cells.push(null);
+                        for (let i = 1; i <= daysInMonth; i++) cells.push(new Date(year, month, i));
+                        while (cells.length % 7 !== 0) cells.push(null);
+
+                        calendarContent = (
+                            <div className="grid grid-cols-7 border-t border-l border-slate-200 bg-slate-100 rounded-xl overflow-hidden mt-4">
+                                {dayNames.map(day => (
+                                    <div key={day} className="bg-slate-50 text-center py-2 text-[10px] font-black uppercase tracking-widest text-slate-500 border-r border-b border-slate-200">
+                                        {window.innerWidth < 640 ? day.substring(0,3) : day}
+                                    </div>
+                                ))}
+                                {cells.map((date, index) => {
+                                    if (!date) return <div key={`empty-${index}`} className="bg-slate-50/50 border-r border-b border-slate-200 min-h-[100px] p-2"></div>;
+                                    
+                                    const dateStr = getLocalDateString(date);
+                                    const dayEvents = filteredOrders.filter(o => o.date === dateStr);
+                                    const isToday = dateStr === getLocalDateString(new Date());
+
+                                    return (
+                                        <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[120px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
+                                            <p className={`text-right text-xs font-bold mb-1.5 ${isToday ? 'text-red-600 font-black' : 'text-slate-400'}`}>
+                                                {isToday ? <span className="bg-red-500 text-white rounded-full w-5 h-5 inline-flex items-center justify-center">{date.getDate()}</span> : date.getDate()}
+                                            </p>
+                                            <div className="space-y-1 max-h-[90px] overflow-y-auto pr-1">
+                                                {dayEvents.map(renderEventCard)}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    } else {
+                        const currentDay = calendarDate.getDay();
+                        const diffToMon = calendarDate.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+                        const startOfWeek = new Date(year, month, diffToMon);
+                        const weekDays = Array.from({length: 7}, (_, i) => new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + i));
+
+                        calendarContent = (
+                            <div className="grid grid-cols-1 sm:grid-cols-7 gap-2 sm:gap-0 sm:border-t sm:border-l border-slate-200 mt-4 bg-slate-50 sm:bg-transparent rounded-xl p-2 sm:p-0">
+                                {weekDays.map((date, index) => {
+                                    const dateStr = getLocalDateString(date);
+                                    const dayEvents = filteredOrders.filter(o => o.date === dateStr);
+                                    const isToday = dateStr === getLocalDateString(new Date());
+                                    
+                                    return (
+                                        <div key={dateStr} className={`bg-white rounded-xl sm:rounded-none border sm:border-r sm:border-b border-slate-200 min-h-[150px] p-3 transition-colors ${isToday ? 'ring-2 ring-red-400 z-10' : ''}`}>
+                                            <div className={`text-center pb-2 mb-2 border-b ${isToday ? 'border-red-200 text-red-600' : 'border-slate-100 text-slate-500'}`}>
+                                                <p className="text-[10px] font-black uppercase tracking-widest">{dayNames[index]}</p>
+                                                <p className={`text-xl font-black ${isToday ? 'text-red-600' : 'text-slate-800'}`}>{date.getDate()}</p>
+                                                <p className="text-[9px] font-bold">{monthNames[date.getMonth()]}</p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {dayEvents.length > 0 ? dayEvents.map(renderEventCard) : <div className="text-center text-[10px] text-slate-400 font-medium py-4">Kosong</div>}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    }
+
+                    const headerTitle = calendarViewMode === 'month' 
+                        ? `${monthNames[month]} ${year}`
+                        : `Minggu, ${weekDays[0].getDate()} ${monthNames[weekDays[0].getMonth()].substring(0,3)} - ${weekDays[6].getDate()} ${monthNames[weekDays[6].getMonth()].substring(0,3)}`;
+
+                    return (
+                        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-sm mt-4 fade-in">
+                            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-2">
+                                <div className="flex items-center gap-2">
+                                    <button onClick={prevPeriod} className="p-2 w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-600 rounded-full transition-colors"><i className="fa-solid fa-chevron-left"></i></button>
+                                    <button onClick={nextPeriod} className="p-2 w-10 h-10 flex items-center justify-center bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-600 rounded-full transition-colors"><i className="fa-solid fa-chevron-right"></i></button>
+                                    <button onClick={goToToday} className="px-4 py-2 bg-slate-100 hover:bg-red-50 hover:text-red-600 text-slate-700 text-xs font-bold rounded-xl transition-colors shadow-sm">Hari Ini</button>
+                                </div>
+                                <h3 className="text-xl font-black text-slate-800 text-center">{headerTitle}</h3>
+                                <div className="flex bg-slate-100 p-1 rounded-xl">
+                                    <button onClick={() => setCalendarViewMode('month')} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${calendarViewMode === 'month' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-800'}`}>Bulanan</button>
+                                    <button onClick={() => setCalendarViewMode('week')} className={`px-4 py-1.5 text-xs font-bold rounded-lg transition-all ${calendarViewMode === 'week' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-800'}`}>Mingguan</button>
+                                </div>
+                            </div>
+                            {calendarContent}
+                        </div>
+                    );
+                };
 
                 return (
                 <div className="space-y-6 fade-in max-w-6xl mx-auto">
@@ -1220,9 +1356,15 @@
 
                     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm flex flex-col">
                         <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row gap-4 justify-between items-center">
-                            <div className="flex bg-slate-200/50 p-1 rounded-xl w-full sm:w-auto">
-                                <button onClick={() => setJadwalTab('aktif')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'aktif' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-700'}`}>Aktif & Berjalan</button>
-                                <button onClick={() => setJadwalTab('arsip')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'arsip' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Arsip Selesai</button>
+                            <div className="flex gap-2 w-full sm:w-auto">
+                                <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200">
+                                    <button onClick={() => setJadwalViewLayout('list')} className={`px-3 py-1.5 text-sm rounded-lg transition-all flex items-center justify-center ${jadwalViewLayout === 'list' ? 'bg-red-50 text-red-600 font-black' : 'text-slate-400 hover:text-slate-600'}`} title="Tampilan List"><i className="fa-solid fa-list"></i></button>
+                                    <button onClick={() => setJadwalViewLayout('calendar')} className={`px-3 py-1.5 text-sm rounded-lg transition-all flex items-center justify-center ${jadwalViewLayout === 'calendar' ? 'bg-red-50 text-red-600 font-black' : 'text-slate-400 hover:text-slate-600'}`} title="Tampilan Kalender"><i className="fa-regular fa-calendar-alt"></i></button>
+                                </div>
+                                <div className="flex bg-slate-200/50 p-1 rounded-xl flex-1 sm:flex-none">
+                                    <button onClick={() => setJadwalTab('aktif')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'aktif' ? 'bg-white shadow-sm text-red-600' : 'text-slate-500 hover:text-slate-700'}`}>Aktif & Berjalan</button>
+                                    <button onClick={() => setJadwalTab('arsip')} className={`flex-1 sm:flex-none px-6 py-2 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'arsip' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-500 hover:text-slate-700'}`}>Arsip Selesai</button>
+                                </div>
                             </div>
                             
                             <div className="flex flex-wrap gap-2 w-full sm:w-auto">
@@ -1254,90 +1396,94 @@
                             </div>
                         </div>
 
-                        {jadwalTab === 'aktif' && (
-                            <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-wrap gap-2">
-                                <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif</button>
-                                <button onClick={() => setJadwalViewMode('hari_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
-                                <button onClick={() => setJadwalViewMode('minggu_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
-                                <button onClick={() => setJadwalViewMode('minggu_depan')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_depan' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Minggu Depan</button>
-                                <button onClick={() => setJadwalViewMode('tertunda')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'tertunda' ? 'bg-red-600 text-white shadow-sm' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}>Tertunda / Lanjutan</button>
-                            </div>
+                        {jadwalViewLayout === 'calendar' ? renderCalendar() : (
+                            <>
+                                {jadwalTab === 'aktif' && (
+                                    <div className="px-4 py-3 bg-white border-b border-slate-200 flex flex-wrap gap-2">
+                                        <button onClick={() => setJadwalViewMode('semua')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua Aktif</button>
+                                        <button onClick={() => setJadwalViewMode('hari_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
+                                        <button onClick={() => setJadwalViewMode('minggu_ini')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
+                                        <button onClick={() => setJadwalViewMode('minggu_depan')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'minggu_depan' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Minggu Depan</button>
+                                        <button onClick={() => setJadwalViewMode('tertunda')} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${jadwalViewMode === 'tertunda' ? 'bg-red-600 text-white shadow-sm' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}>Tertunda / Lanjutan</button>
+                                    </div>
+                                )}
+
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-sm min-w-[900px]">
+                                        <thead className="bg-white text-slate-500 border-b border-slate-200">
+                                            <tr>
+                                                <th className="p-4 font-bold text-xs uppercase tracking-wider w-32">Hari & Tanggal</th>
+                                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Info Klien</th>
+                                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Unit & Kendala</th>
+                                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Teknisi & Status</th>
+                                                <th className="p-4 font-bold text-xs uppercase tracking-wider text-center">Aksi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {listFilteredOrders.map(o => {
+                                                const waPhone = getCleanPhone(o.phone);
+                                                const dateObj = new Date(o.date);
+                                                const dayName = dateObj.toLocaleDateString('id-ID', {weekday:'long'});
+                                                const dateStr = dateObj.toLocaleDateString('id-ID', {day:'2-digit', month:'short', year:'numeric'});
+                                                
+                                                const techObj = technicians.find(t => t.name === o.technician_name);
+                                                const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
+                                                const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
+                                                const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
+                                                const waTechMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0ACek detailnya di portal teknisi kamu ya:%0A${magicLink}`;
+
+                                                return (
+                                                <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
+                                                    <td className="p-4 align-top">
+                                                        <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">{dayName}</p>
+                                                        <p className="font-black text-slate-800">{dateStr}</p>
+                                                        {o.time_estimate && <p className="text-[10px] text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
+                                                        <p className="text-[9px] text-slate-400 mt-1 font-bold">{o.order_id_text}</p>
+                                                    </td>
+                                                    <td className="p-4 align-top">
+                                                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                                            <p className="font-black text-slate-800">{o.customer}</p>
+                                                            {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded uppercase font-black border border-purple-200" title="Vendor"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
+                                                            <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded hover:bg-emerald-100 transition-colors" title="Chat WA Klien"><i className="fa-brands fa-whatsapp"></i></a>
+                                                            <button onClick={() => copyToClipboard(waPhone, 'Nomor WA Klien disalin!')} className="text-slate-400 hover:text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded transition-colors" title="Salin WA Klien"><i className="fa-regular fa-copy"></i></button>
+                                                        </div>
+                                                        <p className="text-xs text-slate-500 truncate max-w-[200px] flex items-center gap-1 font-medium"><i className="fa-solid fa-location-dot text-slate-400"></i> {o.address}</p>
+                                                    </td>
+                                                    <td className="p-4 align-top">
+                                                        <p className="font-bold text-slate-800 text-xs">{o.unit}</p>
+                                                        <p className="text-[11px] text-red-600 font-medium mt-1 truncate max-w-[200px]">{o.issue}</p>
+                                                    </td>
+                                                    <td className="p-4 align-top">
+                                                        <div className="mb-2">
+                                                            {techPhone ? (
+                                                                <a href={`https://wa.me/${techPhone}?text=${waTechMsg}`} target="_blank" className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
+                                                                    <i className="fa-brands fa-whatsapp text-emerald-500"></i> {o.technician_name}
+                                                                </a>
+                                                            ) : (
+                                                                <span className="bg-slate-100 text-slate-600 border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm">
+                                                                    <i className="fa-solid fa-helmet-safety opacity-50"></i> {o.technician_name}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <span className={`text-[9px] font-bold px-2 py-1 rounded uppercase tracking-wider border shadow-sm inline-block ${
+                                                            o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                                            o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                                            o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
+                                                            o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                                            'bg-red-50 text-red-700 border-red-200'
+                                                        }`}>{o.status}</span>
+                                                    </td>
+                                                    <td className="p-4 text-center align-top">
+                                                        <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
+                                                    </td>
+                                                </tr>
+                                            )})}
+                                            {listFilteredOrders.length === 0 && <tr><td colSpan="5" className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </>
                         )}
-
-                        <div className="overflow-x-auto">
-                            <table className="w-full text-left text-sm min-w-[900px]">
-                                <thead className="bg-white text-slate-500 border-b border-slate-200">
-                                    <tr>
-                                        <th className="p-4 font-bold text-xs uppercase tracking-wider w-32">Hari & Tanggal</th>
-                                        <th className="p-4 font-bold text-xs uppercase tracking-wider">Info Klien</th>
-                                        <th className="p-4 font-bold text-xs uppercase tracking-wider">Unit & Kendala</th>
-                                        <th className="p-4 font-bold text-xs uppercase tracking-wider">Teknisi & Status</th>
-                                        <th className="p-4 font-bold text-xs uppercase tracking-wider text-center">Aksi</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                    {filteredOrders.map(o => {
-                                        const waPhone = getCleanPhone(o.phone);
-                                        const dateObj = new Date(o.date);
-                                        const dayName = dateObj.toLocaleDateString('id-ID', {weekday:'long'});
-                                        const dateStr = dateObj.toLocaleDateString('id-ID', {day:'2-digit', month:'short', year:'numeric'});
-                                        
-                                        const techObj = technicians.find(t => t.name === o.technician_name);
-                                        const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
-                                        const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
-                                        const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
-                                        const waTechMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0ACek detailnya di portal teknisi kamu ya:%0A${magicLink}`;
-
-                                        return (
-                                        <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
-                                            <td className="p-4 align-top">
-                                                <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">{dayName}</p>
-                                                <p className="font-black text-slate-800">{dateStr}</p>
-                                                {o.time_estimate && <p className="text-[10px] text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
-                                                <p className="text-[9px] text-slate-400 mt-1 font-bold">{o.order_id_text}</p>
-                                            </td>
-                                            <td className="p-4 align-top">
-                                                <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                                    <p className="font-black text-slate-800">{o.customer}</p>
-                                                    {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded uppercase font-black border border-purple-200" title="Vendor"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
-                                                    <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded hover:bg-emerald-100 transition-colors" title="Chat WA Klien"><i className="fa-brands fa-whatsapp"></i></a>
-                                                    <button onClick={() => copyToClipboard(waPhone, 'Nomor WA Klien disalin!')} className="text-slate-400 hover:text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded transition-colors" title="Salin WA Klien"><i className="fa-regular fa-copy"></i></button>
-                                                </div>
-                                                <p className="text-xs text-slate-500 truncate max-w-[200px] flex items-center gap-1 font-medium"><i className="fa-solid fa-location-dot text-slate-400"></i> {o.address}</p>
-                                            </td>
-                                            <td className="p-4 align-top">
-                                                <p className="font-bold text-slate-800 text-xs">{o.unit}</p>
-                                                <p className="text-[11px] text-red-600 font-medium mt-1 truncate max-w-[200px]">{o.issue}</p>
-                                            </td>
-                                            <td className="p-4 align-top">
-                                                <div className="mb-2">
-                                                    {techPhone ? (
-                                                        <a href={`https://wa.me/${techPhone}?text=${waTechMsg}`} target="_blank" className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
-                                                            <i className="fa-brands fa-whatsapp text-emerald-500"></i> {o.technician_name}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="bg-slate-100 text-slate-600 border-slate-200 text-[10px] font-bold px-2 py-0.5 rounded-md inline-flex items-center gap-1 shadow-sm">
-                                                            <i className="fa-solid fa-helmet-safety opacity-50"></i> {o.technician_name}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <span className={`text-[9px] font-bold px-2 py-1 rounded uppercase tracking-wider border shadow-sm inline-block ${
-                                                    o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
-                                                    o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
-                                                    o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
-                                                    o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
-                                                    'bg-red-50 text-red-700 border-red-200'
-                                                }`}>{o.status}</span>
-                                            </td>
-                                            <td className="p-4 text-center align-top">
-                                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="text-slate-600 bg-white border border-slate-200 hover:border-red-400 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 whitespace-nowrap">Detail / Edit</button>
-                                            </td>
-                                        </tr>
-                                    )})}
-                                    {filteredOrders.length === 0 && <tr><td colSpan="5" className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-4xl mb-3 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
-                                </tbody>
-                            </table>
-                        </div>
                     </div>
                 </div>
                 );
@@ -1663,7 +1809,7 @@
                             }`}></div>
                             <div className="p-5 pb-4">
                                 <div className="flex justify-between items-start mb-4">
-                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'long'})}</span>
+                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'short'})}</span>
                                     <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
                                         o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
                                         o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
@@ -2068,50 +2214,6 @@
                                         </button>
                                     </div>
                                 )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Modal Buat Order Baru (Manual 1 per 1) */}
-                    {showOrderModal && !selectedOrder && role === 'admin' && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
-                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200">
-                                <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center">
-                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className="fa-solid fa-file-circle-plus text-red-600"></i> Buat Order Baru</h3>
-                                    <button onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-slate-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
-                                </div>
-                                <form onSubmit={handleCreateOrder} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tgl Penjadwalan</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" /></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Klien</label><input type="text" name="customer" required placeholder="Cth: Budi / PT Maju" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">No. WhatsApp</label><input type="text" name="phone" required placeholder="0812..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tipe Alat & Kendala</label>
-                                        <div className="space-y-2">
-                                            <input type="text" name="unit" required placeholder="Tipe Alat (Treadmill...)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" />
-                                            <textarea name="issue" required placeholder="Detail kendala..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none"></textarea>
-                                        </div>
-                                    </div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Link Google Maps (Opsional)</label><input type="url" name="maps_link" placeholder="Share lock URL..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Alamat Lokasi (Teks)</label><textarea name="address" required placeholder="Alamat lengkap..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none"></textarea></div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tugaskan Teknisi</label>
-                                        <select name="technician" className="w-full border-2 border-slate-200 p-3.5 rounded-xl font-bold outline-none focus:border-red-500 cursor-pointer bg-slate-50 text-slate-800">
-                                            <option value="">-- Belum Ditugaskan --</option>
-                                            {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Estimasi Waktu Datang</label><input type="text" name="time_estimate" placeholder="Cth: 08:00 - 10:00" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800" /></div>
-                                    
-                                    <div className="pt-2 border-t border-slate-100">
-                                        <label className="text-[10px] font-black text-purple-600 uppercase tracking-widest ml-1 mb-1 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (Opsional)</label>
-                                        <select name="vendor_name" className="w-full border-2 border-purple-200 p-3.5 rounded-xl font-bold outline-none focus:border-purple-500 cursor-pointer bg-purple-50 text-purple-800 mb-4">
-                                            <option value="">-- Bukan dari Vendor (Reguler) --</option>
-                                            {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
-                                        </select>
-
-                                        <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
-                                            {isSaving ? 'Menyimpan...' : 'Simpan & Buat Order'}
-                                        </button>
-                                    </div>
-                                </form>
                             </div>
                         </div>
                     )}
