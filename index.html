@@ -68,6 +68,18 @@
             return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
         };
 
+        // Pilihan Warna Teknisi
+        const TECH_COLORS = {
+            slate: { bg: 'bg-slate-50', border: 'border-slate-400', text: 'text-slate-700', hex: '#64748b' },
+            red: { bg: 'bg-red-50', border: 'border-red-400', text: 'text-red-700', hex: '#ef4444' },
+            blue: { bg: 'bg-blue-50', border: 'border-blue-400', text: 'text-blue-700', hex: '#3b82f6' },
+            green: { bg: 'bg-green-50', border: 'border-green-400', text: 'text-green-700', hex: '#22c55e' },
+            purple: { bg: 'bg-purple-50', border: 'border-purple-400', text: 'text-purple-700', hex: '#a855f7' },
+            orange: { bg: 'bg-orange-50', border: 'border-orange-400', text: 'text-orange-700', hex: '#f97316' },
+            pink: { bg: 'bg-pink-50', border: 'border-pink-400', text: 'text-pink-700', hex: '#ec4899' },
+            teal: { bg: 'bg-teal-50', border: 'border-teal-400', text: 'text-teal-700', hex: '#14b8a6' },
+        };
+
         const copyToClipboard = (text, customAlert = 'Teks berhasil disalin!') => {
             if (navigator.clipboard && window.isSecureContext) {
                 navigator.clipboard.writeText(text).then(() => alert(customAlert));
@@ -154,7 +166,11 @@
             const [showFinanceModal, setShowFinanceModal] = useState(false);
             const [trxTypeForm, setTrxTypeForm] = useState('in'); 
             const [showCashDetailModal, setShowCashDetailModal] = useState({ isOpen: false, type: null });
+            
             const [showTechModal, setShowTechModal] = useState(false);
+            const [techFormMode, setTechFormMode] = useState('add');
+            const [selectedTechToEdit, setSelectedTechToEdit] = useState(null);
+            const [techFormColor, setTechFormColor] = useState('slate');
             
             const [vendorView, setVendorView] = useState('list');
             const [selectedVendor, setSelectedVendor] = useState(null);
@@ -314,6 +330,19 @@
                 });
             }, [transactions, financeFilter]);
 
+            // Memoized sorted orders for Previous/Next navigation
+            const sortedContextOrders = useMemo(() => {
+                let list = orders.filter(o => jadwalTab === 'aktif' ? (isOrderActive(o.status) || o.status.includes('Komplain')) : (['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain')));
+                list.sort((a, b) => {
+                    if (a.date !== b.date) return a.date.localeCompare(b.date);
+                    // Pagi ke Sore
+                    const timeA = a.time_estimate ? a.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                    const timeB = b.time_estimate ? b.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                    return timeA.localeCompare(timeB);
+                });
+                return list;
+            }, [orders, jadwalTab]);
+
             const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
             const isPublicSchedule = role === 'public_schedule';
 
@@ -451,9 +480,12 @@
                                     <img 
                                         src="https://i.imghippo.com/files/aEO3285DJU.png" 
                                         alt="Tanda Tangan Servisika" 
+                                        crossOrigin="anonymous"
+                                        loading="eager"
+                                        decoding="sync"
                                         className="w-80 max-w-none scale-[1.3] object-contain mix-blend-multiply absolute top-1/2 left-1/2 transform -translate-x-[50%] -translate-y-[53%] z-0 pointer-events-none" 
                                     />
-                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative mt-auto">{ttdName}</p>
+                                    <p className="font-black text-slate-800 border-t border-slate-300 pt-1 w-full text-center z-10 relative">{ttdName}</p>
                                 </div>
                             </div>
                         </div>
@@ -779,24 +811,30 @@
                 }
             };
             
-            const handleAddTechnician = async (e) => {
+            const handleSaveTechnician = async (e) => {
                 e.preventDefault();
                 setIsSaving(true);
                 const formData = new FormData(e.target);
                 const name = formData.get('name');
                 const phone = formData.get('phone');
-                const access_code = 'TECH_' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
                 try {
-                    const { data, error } = await supabase.from('technicians').insert([{ name, phone, access_code }]).select();
-                    if (error) throw error;
-                    if (data) {
-                        setTechnicians([data[0], ...technicians]);
-                        setShowTechModal(false);
+                    if (techFormMode === 'add') {
+                        const access_code = 'TECH_' + Math.random().toString(36).substring(2, 6).toUpperCase();
+                        const { data, error } = await supabase.from('technicians').insert([{ name, phone, access_code, color: techFormColor }]).select();
+                        if (error) throw error;
+                        if (data) setTechnicians([data[0], ...technicians]);
+                    } else {
+                        const { data, error } = await supabase.from('technicians').update({ name, phone, color: techFormColor }).eq('id', selectedTechToEdit.id).select();
+                        if (error) throw error;
+                        if (data) {
+                            setTechnicians(technicians.map(t => t.id === selectedTechToEdit.id ? data[0] : t));
+                        }
                     }
+                    setShowTechModal(false);
                 } catch (error) {
-                    console.error("Gagal menambah teknisi:", error);
-                    alert("Gagal menambahkan teknisi. Pastikan RLS sudah didisable di Supabase.");
+                    console.error("Gagal simpan teknisi:", error);
+                    alert("Gagal menyimpan data. Pastikan kamu sudah menjalankan SQL untuk kolom 'color' di Supabase.");
                 } finally {
                     setIsSaving(false);
                 }
@@ -839,66 +877,6 @@
                     setVendors(vendors.filter(v => v.id !== id));
                     setVendorView('list');
                 }
-            }
-
-            if (isInitialLoading) {
-                return (
-                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
-                        <i className="fa-solid fa-circle-notch fa-spin text-5xl text-red-600 mb-4 drop-shadow-md"></i>
-                        <p className="font-bold text-slate-500 animate-pulse tracking-wide uppercase text-sm">Menghubungkan Server...</p>
-                    </div>
-                );
-            }
-
-            if (publicInvoiceOrder) {
-                return (
-                    <div className="min-h-screen bg-slate-100 p-2 sm:p-8 flex items-start justify-center fade-in overflow-y-auto">
-                        <InvoiceTemplate order={publicInvoiceOrder} isStandalone={true} />
-                    </div>
-                );
-            }
-
-            if (!isLoggedIn) {
-                return (
-                    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 fade-in relative overflow-hidden">
-                        <div className="absolute top-0 left-0 w-full h-1/2 bg-red-600 skew-y-3 origin-top-left -z-10"></div>
-                        <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 relative">
-                            <div className="text-center mb-8 pt-2">
-                                <div className="bg-red-50 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner transform rotate-3">
-                                    <i className="fa-solid fa-wrench text-3xl text-red-600 -rotate-3"></i>
-                                </div>
-                                <h1 className="text-3xl font-black text-slate-800 tracking-tight">SERVISIKA</h1>
-                                <p className="text-slate-500 text-sm mt-1 font-medium">Portal Operasional & Lapangan</p>
-                            </div>
-                            
-                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold text-center mb-6 border border-red-100 animate-pulse"><i className="fa-solid fa-circle-exclamation mr-1"></i> {loginError}</div>}
-                            
-                            <div className="space-y-6">
-                                <form onSubmit={handleAdminLogin} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 focus-within:border-slate-400 transition-colors shadow-sm relative overflow-hidden">
-                                    <div className="absolute left-0 top-0 h-full w-1 bg-slate-400"></div>
-                                    <h3 className="text-xs font-black text-slate-600 uppercase tracking-widest mb-3 flex items-center gap-2"><i className="fa-solid fa-shield-halved"></i> Akses Admin</h3>
-                                    <div className="flex gap-2">
-                                        <input type="password" name="pin" placeholder="Masukkan PIN" required className="flex-1 p-3 rounded-xl border border-slate-300 outline-none focus:border-slate-500 text-sm font-bold text-center bg-white" />
-                                        <button type="submit" className="bg-slate-800 hover:bg-slate-900 text-white px-5 rounded-xl font-bold text-sm transition-colors shadow-md active:scale-95">Masuk</button>
-                                    </div>
-                                </form>
-
-                                <div className="relative flex items-center py-2">
-                                    <div className="flex-grow border-t border-slate-200"></div>
-                                    <span className="flex-shrink-0 mx-4 text-slate-400 text-[10px] font-black uppercase tracking-widest">Atau</span>
-                                    <div className="flex-grow border-t border-slate-200"></div>
-                                </div>
-
-                                <form onSubmit={handleTechLogin} className="bg-red-50 p-5 rounded-2xl border border-red-100 focus-within:border-red-300 transition-colors shadow-sm relative overflow-hidden">
-                                    <div className="absolute left-0 top-0 h-full w-1 bg-red-500"></div>
-                                    <h3 className="text-xs font-black text-red-700 uppercase tracking-widest mb-3 flex items-center gap-2 justify-center"><i className="fa-solid fa-helmet-safety"></i> Akses Teknisi</h3>
-                                    <input type="text" name="code" placeholder="Kode Akses (cth: tech_abc)" required className="w-full p-3 rounded-xl border border-red-200 outline-none focus:border-red-400 text-sm font-bold text-center mb-3 bg-white" />
-                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white py-3.5 rounded-xl font-bold text-sm transition-colors shadow-md active:scale-95">Buka Portal Teknisi</button>
-                                </form>
-                            </div>
-                        </div>
-                    </div>
-                )
             }
 
             const Navigation = () => {
@@ -1252,22 +1230,19 @@
                     const dayNames = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
                     const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-                    const getStatusColor = (status) => {
-                        if (status === 'Proses' || status === 'Pengerjaan Lanjutan') return 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200';
-                        if (status.includes('Komplain')) return 'bg-orange-100 text-orange-700 border-orange-200 hover:bg-orange-200';
-                        if (status.includes('Lunas')) return 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200';
-                        if (status.includes('Selesai')) return 'bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-200';
-                        return 'bg-red-100 text-red-700 border-red-200 hover:bg-red-200';
+                    const renderEventCard = (o) => {
+                        const techObj = technicians.find(t => t.name === o.technician_name);
+                        const colorData = TECH_COLORS[techObj?.color] || TECH_COLORS.slate;
+                        
+                        return (
+                            <div key={o.id} onClick={() => handleEventClick(o)} 
+                                 className={`p-1.5 mb-1 rounded border-l-4 text-[10px] font-bold ${isPublicSchedule ? 'cursor-default' : 'cursor-pointer'} transition-colors shadow-sm leading-tight ${colorData.bg} ${colorData.border} ${colorData.text}`}
+                                 title={`${o.customer} - ${o.unit} \n${o.address}`}>
+                                <div className="truncate">{o.customer.split(' ')[0]} • {getShortLocation(o.address)}</div>
+                                {o.time_estimate && <div className="text-[9px] font-medium opacity-80 mt-0.5"><i className="fa-regular fa-clock"></i> {o.time_estimate}</div>}
+                            </div>
+                        );
                     };
-
-                    const renderEventCard = (o) => (
-                        <div key={o.id} onClick={() => handleEventClick(o)} 
-                             className={`p-1.5 mb-1.5 rounded border text-xs font-bold cursor-pointer transition-colors shadow-sm leading-tight ${getStatusColor(o.status)}`}
-                             title={`${o.customer} - ${o.unit} \n${o.address}`}>
-                            <div className="truncate">{o.customer.split(' ')[0]} • {getShortLocation(o.address)}</div>
-                            {o.time_estimate && <div className="text-[10px] font-medium opacity-80 mt-0.5"><i className="fa-regular fa-clock"></i> {o.time_estimate}</div>}
-                        </div>
-                    );
 
                     let calendarContent;
                     let headerTitle = '';
@@ -1293,14 +1268,18 @@
                                         </div>
                                     ))}
                                     {cells.map((date, index) => {
-                                        if (!date) return <div key={`empty-${index}`} className="bg-slate-50/50 border-r border-b border-slate-200 min-h-[100px] p-2"></div>;
-                                        
-                                        const dateStr = getLocalDateString(date);
-                                        const dayEvents = filteredOrders.filter(o => o.date === dateStr);
-                                        const isToday = dateStr === getLocalDateString(new Date());
+                                    if (!date) return <div key={`empty-${index}`} className="bg-slate-50/50 border-r border-b border-slate-200 min-h-[100px] p-2"></div>;
+                                    
+                                    const dateStr = getLocalDateString(date);
+                                    const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
+                                        const timeA = a.time_estimate ? a.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                                        const timeB = b.time_estimate ? b.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                                        return timeA.localeCompare(timeB);
+                                    });
+                                    const isToday = dateStr === getLocalDateString(new Date());
 
-                                        return (
-                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[120px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
+                                    return (
+                                        <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[120px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
                                                 <p className={`text-right text-sm font-bold mb-1.5 ${isToday ? 'text-red-600 font-black' : 'text-slate-400'}`}>
                                                     {isToday ? <span className="bg-red-500 text-white rounded-full w-6 h-6 inline-flex items-center justify-center">{date.getDate()}</span> : date.getDate()}
                                                 </p>
@@ -1323,21 +1302,25 @@
 
                         calendarContent = (
                             <div className="calendar-scroll-container mt-4">
-                                <div className="min-w-[800px] grid grid-cols-7 gap-0 border-t border-l border-slate-200 bg-transparent rounded-xl">
+                                <div className="min-w-[800px] grid grid-cols-7 border-t border-l border-slate-200 bg-slate-100 rounded-xl overflow-hidden">
                                     {weekDaysArr.map((date, index) => {
                                         const dateStr = getLocalDateString(date);
-                                        const dayEvents = filteredOrders.filter(o => o.date === dateStr);
+                                        const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
+                                            const timeA = a.time_estimate ? a.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                                            const timeB = b.time_estimate ? b.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                                            return timeA.localeCompare(timeB);
+                                        });
                                         const isToday = dateStr === getLocalDateString(new Date());
                                         
                                         return (
-                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[150px] p-3 transition-colors ${isToday ? 'ring-2 ring-red-400 z-10' : ''}`}>
+                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[300px] p-2 transition-colors ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
                                                 <div className={`text-center pb-2 mb-2 border-b ${isToday ? 'border-red-200 text-red-600' : 'border-slate-100 text-slate-500'}`}>
                                                     <p className="text-xs font-black uppercase tracking-widest">{dayNames[index]}</p>
                                                     <p className={`text-2xl font-black ${isToday ? 'text-red-600' : 'text-slate-800'}`}>{date.getDate()}</p>
-                                                    <p className="text-xs font-bold">{monthNames[date.getMonth()]}</p>
+                                                    <p className="text-[10px] font-bold">{monthNames[date.getMonth()]}</p>
                                                 </div>
-                                                <div className="space-y-2">
-                                                    {dayEvents.length > 0 ? dayEvents.map(renderEventCard) : <div className="text-center text-sm text-slate-400 font-medium py-4">Kosong</div>}
+                                                <div className="space-y-1">
+                                                    {dayEvents.length > 0 ? dayEvents.map(renderEventCard) : <div className="text-center text-xs text-slate-400 font-medium py-4">Kosong</div>}
                                                 </div>
                                             </div>
                                         );
@@ -1522,7 +1505,7 @@
                                                     )}
                                                 </tr>
                                             )})}
-                                            {filteredOrders.length === 0 && <tr><td colSpan={isPublicSchedule ? "4" : "5"} className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-5xl mb-4 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
+                                            {filteredOrders.length === 0 && <tr><td col colSpan={isPublicSchedule ? "4" : "5"} className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-5xl mb-4 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -1760,7 +1743,7 @@
                 <div className="space-y-6 fade-in max-w-6xl mx-auto">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                         <div><h2 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight">Tim Teknisi</h2><p className="text-slate-500 text-sm mt-1">Kelola data teknisi dan bagikan link akses login.</p></div>
-                        <button onClick={() => setShowTechModal(true)} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
+                        <button onClick={() => { setTechFormMode('add'); setTechFormColor('slate'); setShowTechModal(true); }} className="w-full sm:w-auto bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
                             <i className="fa-solid fa-plus"></i> Tambah Teknisi
                         </button>
                     </div>
@@ -1771,39 +1754,26 @@
                             const magicLink = `${window.location.origin}${window.location.pathname}?tech=${tech.access_code}`;
                             const waMessage = `Halo ${tech.name}, ini akses khusus Aplikasi Lapangan Servisika Anda.\n\nKlik link di bawah ini untuk masuk otomatis tanpa password:\n\n${magicLink}\n\nMohon simpan pesan ini.`;
                             const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(waMessage)}`;
+                            const techColor = TECH_COLORS[tech.color] || TECH_COLORS.slate;
 
                             return (
-                                <div key={tech.id} className="bg-white border border-slate-200 p-6 rounded-2xl shadow-sm relative flex flex-col hover:shadow-md transition-shadow">
-                                    <div className="flex justify-between items-start mb-5">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-14 h-14 bg-slate-100 border border-slate-200 rounded-full flex items-center justify-center text-slate-700 font-black text-2xl shadow-inner">{tech.name.charAt(0).toUpperCase()}</div>
+                                <div key={tech.id} className="bg-white border border-slate-200 p-5 rounded-2xl shadow-sm relative flex flex-col hover:shadow-md transition-shadow">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-xl shadow-inner border ${techColor.bg} ${techColor.text} ${techColor.border}`}>{tech.name.charAt(0).toUpperCase()}</div>
                                             <div>
-                                                <h3 className="font-black text-xl text-slate-800 leading-none mb-2">{tech.name}</h3>
-                                                <span className="text-[10px] text-emerald-700 font-black uppercase tracking-widest bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md inline-block shadow-sm">Aktif</span>
+                                                <h3 className="font-black text-lg text-slate-800 leading-none mb-1.5">{tech.name}</h3>
+                                                <span className="text-[9px] text-emerald-700 font-black uppercase tracking-widest bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md inline-block shadow-sm">Aktif</span>
                                             </div>
                                         </div>
-                                        <button onClick={async () => {
-                                            if(window.confirm(`Yakin hapus teknisi ${tech.name}? Akses loginnya akan hangus.`)) {
-                                                await supabase.from('technicians').delete().eq('id', tech.id);
-                                                setTechnicians(technicians.filter(t => t.id !== tech.id));
-                                            }
-                                        }} className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-xl transition-colors"><i className="fa-solid fa-trash text-lg"></i></button>
-                                    </div>
-                                    
-                                    <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 space-y-3">
-                                        <div className="flex items-center text-base text-slate-700 font-bold"><i className="fa-brands fa-whatsapp text-emerald-500 w-8 text-xl"></i>{tech.phone}</div>
-                                        <div className="flex items-center text-xs text-slate-500 font-black uppercase tracking-wider"><i className="fa-solid fa-key w-8 text-lg opacity-50"></i>KODE: {tech.access_code}</div>
-                                    </div>
-                                    
-                                    <div className="mt-auto flex flex-col gap-2">
-                                        <p className="text-xs text-slate-400 font-bold text-center mb-1.5">Bagikan Akses Login:</p>
-                                        <div className="flex gap-2">
-                                            <button onClick={() => copyToClipboard(`Halo ${tech.name}, link portal teknisi kamu:\n${magicLink}`, 'Link WA berhasil disalin! Silakan paste manual jika klik WA error.')} className="flex-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
-                                                <i className="fa-regular fa-copy text-base"></i> Salin Link
-                                            </button>
-                                            <a href={waUrl} target="_blank" className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-3 rounded-xl text-sm font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
-                                                <i className="fa-brands fa-whatsapp text-xl"></i> Kirim WA
-                                            </a>
+                                        <div className="flex items-center">
+                                            <button onClick={() => { setSelectedTechToEdit(tech); setTechFormMode('edit'); setTechFormColor(tech.color || 'slate'); setShowTechModal(true); }} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors"><i className="fa-solid fa-pen"></i></button>
+                                            <button onClick={async () => {
+                                                if(window.confirm(`Yakin hapus teknisi ${tech.name}? Akses loginnya akan hangus.`)) {
+                                                    await supabase.from('technicians').delete().eq('id', tech.id);
+                                                    setTechnicians(technicians.filter(t => t.id !== tech.id));
+                                                }
+                                            }} className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"><i className="fa-solid fa-trash"></i></button>
                                         </div>
                                     </div>
                                 </div>
@@ -1964,7 +1934,26 @@
                 )
             };
 
-            const renderModals = () => (
+            const renderModals = () => {
+                const currentOrderIndex = selectedOrder ? sortedContextOrders.findIndex(o => o.id === selectedOrder.id) : -1;
+                
+                const handlePrevOrder = () => {
+                    if (currentOrderIndex > 0) {
+                        const prev = sortedContextOrders[currentOrderIndex - 1];
+                        setModalParts(prev.order_parts || []);
+                        setSelectedOrder(prev);
+                    }
+                };
+
+                const handleNextOrder = () => {
+                    if (currentOrderIndex < sortedContextOrders.length - 1 && currentOrderIndex !== -1) {
+                        const next = sortedContextOrders[currentOrderIndex + 1];
+                        setModalParts(next.order_parts || []);
+                        setSelectedOrder(next);
+                    }
+                };
+
+                return (
                 <>
                     {/* Quick View Calendar Detail Modal */}
                     {quickViewOrder && (
@@ -1983,33 +1972,22 @@
                                             </div>
                                         </div>
                                         {quickViewOrder.time_estimate && (
-                                            <div className="flex gap-3 items-start">
-                                                <i className="fa-regular fa-clock text-blue-500 mt-1"></i>
+                                            <div className="flex gap-3 items-center">
+                                                <i className="fa-regular fa-clock text-blue-500"></i>
                                                 <p className="text-xs font-bold text-blue-700">{quickViewOrder.time_estimate}</p>
                                             </div>
                                         )}
                                         <div className="flex gap-3 items-start">
-                                            <i className="fa-solid fa-location-dot text-emerald-500 mt-1"></i>
+                                            <i className="fa-solid fa-location-dot text-slate-400 mt-1"></i>
                                             <div>
-                                                <p className="text-xs font-medium text-slate-600 leading-relaxed">{quickViewOrder.address}</p>
+                                                <p className="text-xs font-medium text-slate-600 leading-snug">{quickViewOrder.address}</p>
                                                 {quickViewOrder.maps_link && (
-                                                    <a href={quickViewOrder.maps_link} target="_blank" className="text-xs font-bold text-emerald-600 hover:underline mt-1 inline-block">Buka di Google Maps &rarr;</a>
+                                                    <a href={quickViewOrder.maps_link} target="_blank" className="text-[10px] font-bold text-blue-500 hover:underline mt-1 block">Buka di Google Maps &rarr;</a>
                                                 )}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                                
-                                {!isPublicSchedule && role === 'admin' && (
-                                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end">
-                                        <button onClick={() => {
-                                            setModalParts(quickViewOrder.order_parts||[]); 
-                                            setSelectedOrder(quickViewOrder); 
-                                            setQuickViewOrder(null);
-                                            setShowOrderModal(true);
-                                        }} className="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-4 py-2 rounded-xl shadow-sm hover:text-red-600 active:scale-95 transition-all">Edit Lengkap</button>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     )}
@@ -2024,7 +2002,16 @@
                                         <h3 className="font-black text-xl text-slate-800 leading-tight">{role === 'admin' ? 'Kelola Detail Pengerjaan' : 'Laporan Update Teknisi'}</h3>
                                         <p className="text-xs text-slate-500 font-bold mt-1 uppercase tracking-wider truncate">{selectedOrder.order_id_text} • {selectedOrder.customer}</p>
                                     </div>
-                                    <button type="button" onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 w-10 h-10 flex items-center justify-center shrink-0 rounded-full transition-colors ml-2"><i className="fa-solid fa-xmark"></i></button>
+                                    <div className="flex items-center gap-2">
+                                        {currentOrderIndex !== -1 && (
+                                            <div className="hidden sm:flex items-center bg-slate-100 rounded-lg p-1 mr-2 border border-slate-200">
+                                                <button type="button" onClick={handlePrevOrder} disabled={currentOrderIndex <= 0} className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white text-slate-600 disabled:opacity-30 disabled:hover:bg-transparent transition-colors shadow-sm"><i className="fa-solid fa-chevron-left"></i></button>
+                                                <span className="text-[10px] font-black text-slate-400 px-3">{currentOrderIndex + 1} / {sortedContextOrders.length}</span>
+                                                <button type="button" onClick={handleNextOrder} disabled={currentOrderIndex >= sortedContextOrders.length - 1} className="w-8 h-8 flex items-center justify-center rounded-md hover:bg-white text-slate-600 disabled:opacity-30 disabled:hover:bg-transparent transition-colors shadow-sm"><i className="fa-solid fa-chevron-right"></i></button>
+                                            </div>
+                                        )}
+                                        <button type="button" onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 w-10 h-10 flex items-center justify-center shrink-0 rounded-full transition-colors ml-2"><i className="fa-solid fa-xmark"></i></button>
+                                    </div>
                                 </div>
                                 
                                 <div className="p-5 sm:p-6 overflow-y-auto flex-1 bg-slate-50 relative pb-32">
@@ -2050,49 +2037,49 @@
                                         {role === 'admin' && (
                                             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nama Pelanggan</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nama Pelanggan</label>
                                                     <input type="text" name="customer" defaultValue={selectedOrder.customer} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nomor WA</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nomor WA</label>
                                                     <input type="text" name="phone" defaultValue={selectedOrder.phone} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tanggal Penjadwalan</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tanggal Penjadwalan</label>
                                                     <input type="date" name="date" defaultValue={selectedOrder.date} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tugaskan Teknisi</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tugaskan Teknisi</label>
                                                     <select name="technician" defaultValue={selectedOrder.technician_name} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400">
                                                         <option value="Belum Ditugaskan">-- Belum Ditugaskan --</option>
                                                         {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Estimasi Waktu Datang</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Estimasi Waktu Datang</label>
                                                     <input type="text" name="time_estimate" defaultValue={selectedOrder.time_estimate} placeholder="Cth: 08:00 - 10:00" className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 
                                                 <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tipe Alat (Unit)</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tipe Alat (Unit)</label>
                                                     <input type="text" name="unit" defaultValue={selectedOrder.unit} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Detail Kendala</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Detail Kendala</label>
                                                     <textarea name="issue" rows="2" defaultValue={selectedOrder.issue} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
                                                 </div>
 
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Link Google Maps (Opsional)</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Link Google Maps (Opsional)</label>
                                                     <input type="url" name="maps_link" defaultValue={selectedOrder.maps_link} placeholder="Cth: https://maps.app.goo.gl/..." className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat Teks</label>
+                                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat Teks</label>
                                                     <textarea name="address" rows="2" defaultValue={selectedOrder.address} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
                                                 </div>
                                                 
                                                 <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
-                                                    <label className="text-[9px] font-black text-purple-600 uppercase tracking-widest mb-1.5 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (B2B)</label>
+                                                    <label className="text-[10px] font-black text-purple-600 uppercase tracking-widest mb-1.5 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (B2B)</label>
                                                     <select name="vendor_name" defaultValue={selectedOrder.vendor_name || ''} className="w-full p-3 border border-purple-200 rounded-xl text-sm font-bold bg-purple-50 outline-none focus:border-purple-500 text-purple-800">
                                                         <option value="">-- Bukan dari Vendor (Reguler) --</option>
                                                         {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
@@ -2501,21 +2488,35 @@
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
                             <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden border border-slate-200">
                                 <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center">
-                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className="fa-solid fa-user-plus text-red-600"></i> Tambah Teknisi</h3>
+                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className={`fa-solid ${techFormMode === 'add' ? 'fa-user-plus' : 'fa-pen'} text-red-600`}></i> {techFormMode === 'add' ? 'Tambah Teknisi' : 'Edit Teknisi'}</h3>
                                     <button onClick={() => setShowTechModal(false)} className="text-slate-400 hover:text-slate-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
-                                <form onSubmit={handleAddTechnician} className="p-6 space-y-4">
+                                <form onSubmit={handleSaveTechnician} className="p-6 space-y-4">
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Panggilan / Lengkap</label>
-                                        <input type="text" name="name" required placeholder="Cth: Away" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="name" defaultValue={techFormMode === 'edit' ? selectedTechToEdit.name : ''} required placeholder="Cth: Away" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nomor WA Aktif</label>
-                                        <input type="text" name="phone" required placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="phone" defaultValue={techFormMode === 'edit' ? selectedTechToEdit.phone : ''} required placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Pilih Warna Identitas Kalender</label>
+                                        <div className="flex flex-wrap gap-2">
+                                            {Object.keys(TECH_COLORS).map(colorKey => (
+                                                <button 
+                                                    key={colorKey} 
+                                                    type="button" 
+                                                    onClick={() => setTechFormColor(colorKey)} 
+                                                    className={`w-8 h-8 rounded-full ${TECH_COLORS[colorKey].bg} border-2 ${TECH_COLORS[colorKey].border} transition-all ${techFormColor === colorKey ? 'ring-2 ring-offset-2 ring-slate-800 scale-110' : 'hover:scale-105'}`}
+                                                    title={colorKey}
+                                                ></button>
+                                            ))}
+                                        </div>
                                     </div>
                                     <div className="pt-4 border-t border-slate-100">
                                         <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
-                                            {isSaving ? 'Menyimpan...' : 'Simpan & Buat Akses'}
+                                            {isSaving ? 'Menyimpan...' : (techFormMode === 'add' ? 'Simpan & Buat Akses' : 'Simpan Perubahan')}
                                         </button>
                                     </div>
                                 </form>
