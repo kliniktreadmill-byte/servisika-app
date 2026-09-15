@@ -52,9 +52,12 @@
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwdm5sd2Nqbm1maXlybGJoZ3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1ODA0ODksImV4cCI6MjEwMDE1NjQ4OX0.Y5eBJEjxfOEv0ES-LUYfY6aP7zaRIdp5L2XAzvLZLks';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        const parseCurrency = (val) => Number(val.toString().replace(/[^0-9]/g, ''));
+        /* Helper Functions ditarik ke luar agar tidak menyebabkan error "Temporal Dead Zone" (Layar Blank) */
+        const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
+        
+        const parseCurrency = (val) => Number(String(val).replace(/[^0-9]/g, ''));
         const formatRupiah = (number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
-        const formatNumberStr = (val) => val.toString().replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        const formatNumberStr = (val) => String(val).replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
         
         const getCleanPhone = (phone) => {
             let cleanPhone = (phone || '').replace(/[\D\s-]/g, ''); 
@@ -336,14 +339,13 @@
                 list.sort((a, b) => {
                     if (a.date !== b.date) return a.date.localeCompare(b.date);
                     // Pagi ke Sore
-                    const timeA = a.time_estimate ? a.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
-                    const timeB = b.time_estimate ? b.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                    const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
+                    const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                     return timeA.localeCompare(timeB);
                 });
                 return list;
             }, [orders, jadwalTab]);
 
-            const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
             const isPublicSchedule = role === 'public_schedule';
 
             const generateInvoiceLink = (orderId) => {
@@ -569,9 +571,9 @@
                     if (orderDate) {
                         const dMatch = orderDate.match(/(\d{1,2})[\/\-\s]+([a-zA-Z]+|\d{1,2})[\/\-\s]+(\d{4})/);
                         if (dMatch) {
-                           parsedDate = extractDate(lines) || getLocalDateString(new Date());
+                           parsedDate = extractDate([orderDate]) || getLocalDateString(new Date());
                         } else {
-                           parsedDate = extractDate(lines) || getLocalDateString(new Date());
+                           parsedDate = extractDate([orderDate]) || getLocalDateString(new Date());
                         }
                     } else {
                         parsedDate = extractDate(lines) || getLocalDateString(new Date());
@@ -693,7 +695,7 @@
                     const partsToInsert = modalParts.filter(p => p.name.trim() !== '').map(p => ({
                         order_id: selectedOrder.id,
                         name: p.name,
-                        price: parseCurrency(p.price) * (p.price < 0 ? -1 : 1) * (p.price.toString().includes('-') ? -1 : 1), 
+                        price: parseCurrency(p.price) * (p.price < 0 ? -1 : 1) * (String(p.price).includes('-') ? -1 : 1), 
                         warranty_months: Number(p.warranty_months || 0),
                         is_estimate: p.is_estimate || false,
                         estimate_text: p.estimate_text || ''
@@ -1196,6 +1198,7 @@
                 }
 
                 const handleEventClick = (o) => {
+                    if (isPublicSchedule) return;
                     setQuickViewOrder(o);
                 }
 
@@ -1272,8 +1275,8 @@
                                     
                                     const dateStr = getLocalDateString(date);
                                     const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
-                                        const timeA = a.time_estimate ? a.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
-                                        const timeB = b.time_estimate ? b.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                                        const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
+                                        const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                                         return timeA.localeCompare(timeB);
                                     });
                                     const isToday = dateStr === getLocalDateString(new Date());
@@ -1306,8 +1309,8 @@
                                     {weekDaysArr.map((date, index) => {
                                         const dateStr = getLocalDateString(date);
                                         const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
-                                            const timeA = a.time_estimate ? a.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
-                                            const timeB = b.time_estimate ? b.time_estimate.replace(/[^0-9:]/g, '') : '24:00';
+                                            const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
+                                            const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                                             return timeA.localeCompare(timeB);
                                         });
                                         const isToday = dateStr === getLocalDateString(new Date());
@@ -1505,7 +1508,7 @@
                                                     )}
                                                 </tr>
                                             )})}
-                                            {filteredOrders.length === 0 && <tr><td col colSpan={isPublicSchedule ? "4" : "5"} className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-5xl mb-4 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
+                                            {filteredOrders.length === 0 && <tr><td colSpan={isPublicSchedule ? "4" : "5"} className="p-16 text-center text-slate-400 font-medium"><i className="fa-solid fa-folder-open text-5xl mb-4 text-slate-200 block"></i>Tidak ada data pengerjaan di tab ini.</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -1774,6 +1777,23 @@
                                                     setTechnicians(technicians.filter(t => t.id !== tech.id));
                                                 }
                                             }} className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"><i className="fa-solid fa-trash"></i></button>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl mb-5 space-y-2">
+                                        <div className="flex items-center text-sm text-slate-700 font-bold"><i className="fa-brands fa-whatsapp text-emerald-500 w-6 text-lg"></i>{tech.phone}</div>
+                                        <div className="flex items-center text-[10px] text-slate-500 font-black uppercase tracking-wider"><i className="fa-solid fa-key w-6 text-sm opacity-50"></i>KODE: {tech.access_code}</div>
+                                    </div>
+                                    
+                                    <div className="mt-auto flex flex-col gap-2">
+                                        <p className="text-[10px] text-slate-400 font-bold text-center mb-1">Bagikan Akses Login:</p>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => copyToClipboard(`Halo ${tech.name}, link portal teknisi kamu:\n${magicLink}`, 'Link WA berhasil disalin! Silakan paste manual jika klik WA error.')} className="flex-1 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
+                                                <i className="fa-regular fa-copy text-sm"></i> Salin Link
+                                            </button>
+                                            <a href={waUrl} target="_blank" className="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 py-2.5 rounded-xl text-xs font-bold flex justify-center items-center gap-2 transition-colors active:scale-95 shadow-sm">
+                                                <i className="fa-brands fa-whatsapp text-lg"></i> Kirim WA
+                                            </a>
                                         </div>
                                     </div>
                                 </div>
