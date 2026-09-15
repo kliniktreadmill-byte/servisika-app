@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
-    <!-- Tesseract JS untuk AI OCR (Membaca Teks dari Screenshot/Gambar) -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <style>
@@ -34,6 +33,13 @@
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
         .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        
+        /* Smooth Horizontal Scroll for Calendar on Mobile */
+        .calendar-scroll-container {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            padding-bottom: 10px;
+        }
     </style>
 </head>
 <body class="text-slate-800 selection:bg-red-200 selection:text-red-900">
@@ -142,6 +148,7 @@
 
             const [showOrderModal, setShowOrderModal] = useState(false);
             const [selectedOrder, setSelectedOrder] = useState(null);
+            const [quickViewOrder, setQuickViewOrder] = useState(null);
             const [modalParts, setModalParts] = useState([]); 
             
             const [showFinanceModal, setShowFinanceModal] = useState(false);
@@ -310,6 +317,20 @@
             const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
             const isPublicSchedule = role === 'public_schedule';
 
+            const generateInvoiceLink = (orderId) => {
+                const appUrl = window.location.origin + window.location.pathname;
+                return `${appUrl}?invoice=${orderId}`;
+            };
+            
+            const getWaTechMsg = (o) => {
+                const dateStr = new Date(o.date).toLocaleDateString('id-ID', {weekday:'long', day:'2-digit', month:'short', year:'numeric'});
+                const techObj = technicians.find(t => t.name === o.technician_name);
+                const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
+                const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
+                const invoiceLink = generateInvoiceLink(o.id);
+                return `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0A*📄 Link Invoice Klien:*%0A${invoiceLink}%0A%0ACek progress dan laporkan hasil pengerjaan di portal teknisi kamu ya:%0A${magicLink}`;
+            };
+
             const InvoiceTemplate = ({ order, isStandalone = false }) => {
                 const parts = order.order_parts || [];
                 const total = parts.reduce((s, p) => s + (p.is_estimate ? 0 : Number(p.price)), 0);
@@ -450,11 +471,6 @@
                 );
             };
 
-            const generateInvoiceLink = (orderId) => {
-                const appUrl = window.location.origin + window.location.pathname;
-                return `${appUrl}?invoice=${orderId}`;
-            };
-
             const handleOCR = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
@@ -469,7 +485,7 @@
                     alert("Gagal mengekstrak teks dari gambar. Gunakan fitur copy-paste manual.");
                 } finally {
                     setIsProcessingOCR(false);
-                    e.target.value = null; // reset input file
+                    e.target.value = null;
                 }
             };
 
@@ -481,12 +497,10 @@
                     for (let line of lines) {
                         const lowerLine = line.toLowerCase();
                         for (let kw of keywords) {
-                            // Extract exact case from the original line using case-insensitive regex
                             const regex = new RegExp(`^\\s*${kw}\\s*[:\\-]\\s*(.+)`, 'i');
                             const match = line.match(regex);
                             if (match) return match[1].trim();
                             
-                            // Fallback if formatting is weird
                             if (lowerLine.startsWith(kw.toLowerCase())) {
                                 const idx = lowerLine.indexOf(':') > -1 ? lowerLine.indexOf(':') : lowerLine.indexOf('-');
                                 if (idx > -1) {
@@ -554,7 +568,8 @@
                         issue: extractValue(lines, ['kendala', 'keluhan', 'rusak', 'masalah', 'error']), 
                         address: address, 
                         maps_link: mapsLink,
-                        vendor_name: '' 
+                        vendor_name: '',
+                        technician_name: 'Belum Ditugaskan' 
                     };
 
                     if (order.customer || order.unit || order.issue) {
@@ -581,7 +596,7 @@
                         address: o.address || '',
                         unit: o.unit || '',
                         issue: o.issue || '',
-                        technician_name: 'Belum Ditugaskan',
+                        technician_name: o.technician_name || 'Belum Ditugaskan',
                         status: 'Proses',
                         time_estimate: o.time_estimate || '',
                         maps_link: o.maps_link || '',
@@ -974,7 +989,6 @@
                 else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
                 else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
-                // Terapkan Filter Tanggal Global ke Dashboard jika ada
                 if (financeFilter.startDate) displayOrders = displayOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) displayOrders = displayOrders.filter(o => o.date <= financeFilter.endDate);
 
@@ -1011,20 +1025,20 @@
                             <div className="flex gap-4 items-start flex-1">
                                 <div className="bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 text-center shrink-0 w-20 shadow-sm relative overflow-hidden mt-1 flex flex-col items-center justify-center">
                                     <div className="absolute top-0 left-0 w-full h-1 bg-red-500"></div>
-                                    <p className="text-xs text-slate-500 font-bold uppercase tracking-widest leading-none mb-1 mt-1">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none mb-1 mt-1">{new Date(o.date).toLocaleDateString('id-ID', {weekday:'short'})}</p>
                                     <p className="text-xl font-black text-slate-800 leading-none">{new Date(o.date).getDate()}</p>
                                     <p className="text-[10px] text-red-600 font-black uppercase tracking-widest mt-1 bg-red-50 px-2 rounded-full w-full truncate border border-red-100">{new Date(o.date).toLocaleDateString('id-ID', {month:'short'})}</p>
                                 </div>
                                 <div className="overflow-hidden flex-1">
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <p className="font-black text-slate-800 text-base truncate max-w-[200px]">{o.customer}</p>
-                                        {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded uppercase font-black border border-purple-200"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
+                                        {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded uppercase font-black border border-purple-200"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
                                         {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
                                     </div>
                                     {o.time_estimate && <p className="text-xs text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
                                     <p className="text-sm font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
                                     <p className="text-xs font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
-                                    <p className="text-xs font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-1 rounded border border-emerald-200">
+                                    <p className="text-[10px] font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-0.5 rounded border border-emerald-200">
                                         <i className="fa-solid fa-rupiah-sign"></i> Potensi Tagihan: {formatRupiah(totalPemasukan)}
                                     </p>
                                 </div>
@@ -1033,7 +1047,7 @@
                                 <span className="bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold px-2 py-1 rounded-md flex items-center gap-1">
                                     <i className="fa-solid fa-helmet-safety"></i> {o.technician_name === 'Belum Ditugaskan' ? <span className="text-red-500">Belum Ditugaskan</span> : o.technician_name}
                                 </span>
-                                <span className={`text-xs font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
+                                <span className={`text-[10px] font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
                                     o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
                                     o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
                                     o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
@@ -1064,9 +1078,8 @@
                         )}
                     </div>
 
-                    {/* Filter Global Tanggal */}
                     <div className="bg-white border border-slate-200 p-4 rounded-2xl flex flex-wrap items-center gap-4 shadow-sm">
-                        <p className="text-xs font-black uppercase tracking-widest text-slate-400 w-full sm:w-auto">Filter Tanggal (Global):</p>
+                        <p className="text-xs font-black uppercase tracking-widest text-slate-400 w-full sm:w-auto">Filter Data (Global):</p>
                         <div className="flex items-center gap-2 w-full sm:w-auto">
                             <input type="date" value={financeFilter.startDate} onChange={e => setFinanceFilter({...financeFilter, startDate: e.target.value})} className="p-2 border border-slate-200 rounded-lg text-sm font-bold outline-none focus:border-red-400 bg-slate-50" />
                             <span className="text-slate-400 font-bold">-</span>
@@ -1092,15 +1105,16 @@
                             <div>
                                 <h3 className="font-black text-slate-800 tracking-tight flex items-center gap-2">
                                     Jadwal Pengerjaan Berjalan
+                                    {dashFilter && <span className="bg-slate-200 text-slate-600 text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Filtered</span>}
                                 </h3>
                                 <p className="text-xs text-slate-500 mt-1 font-medium">Pantauan aktivitas lapangan yang butuh tindakan.</p>
                             </div>
                             <div className="px-4 py-2 bg-white border border-slate-200 rounded-xl flex flex-wrap gap-2 shadow-sm">
-                                <button onClick={() => setDashTimeFilter('semua')} className={`px-3 py-1.5 rounded-full text-sm font-bold transition-all ${dashTimeFilter === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua</button>
-                                <button onClick={() => setDashTimeFilter('hari_ini')} className={`px-3 py-1.5 rounded-full text-sm font-bold transition-all ${dashTimeFilter === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
-                                <button onClick={() => setDashTimeFilter('minggu_ini')} className={`px-3 py-1.5 rounded-full text-sm font-bold transition-all ${dashTimeFilter === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
-                                <button onClick={() => setDashTimeFilter('minggu_depan')} className={`px-3 py-1.5 rounded-full text-sm font-bold transition-all ${dashTimeFilter === 'minggu_depan' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Minggu Depan</button>
-                                <button onClick={() => setDashTimeFilter('bulan_ini')} className={`px-3 py-1.5 rounded-full text-sm font-bold transition-all ${dashTimeFilter === 'bulan_ini' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>Bulan Ini</button>
+                                <button onClick={() => setDashTimeFilter('semua')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'semua' ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>Semua</button>
+                                <button onClick={() => setDashTimeFilter('hari_ini')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'hari_ini' ? 'bg-blue-600 text-white shadow-sm' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>Hari Ini</button>
+                                <button onClick={() => setDashTimeFilter('minggu_ini')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'minggu_ini' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}`}>Minggu Ini</button>
+                                <button onClick={() => setDashTimeFilter('minggu_depan')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'minggu_depan' ? 'bg-orange-600 text-white shadow-sm' : 'bg-orange-50 text-orange-700 hover:bg-orange-100'}`}>Minggu Depan</button>
+                                <button onClick={() => setDashTimeFilter('bulan_ini')} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${dashTimeFilter === 'bulan_ini' ? 'bg-purple-600 text-white shadow-sm' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>Bulan Ini</button>
                             </div>
                         </div>
                         <div className="divide-y divide-slate-100 bg-slate-50">
@@ -1124,7 +1138,7 @@
                             {(upcomingList.length === 0 && overdueList.length === 0) && (
                                 <div className="p-12 text-center text-slate-400 bg-white">
                                     <i className="fa-solid fa-calendar-check text-4xl mb-3 text-slate-300 block"></i>
-                                    <p className="text-base font-bold">Tidak ada pengerjaan aktif yang sesuai filter.</p>
+                                    <p className="text-sm font-bold">Tidak ada pengerjaan aktif yang sesuai filter.</p>
                                 </div>
                             )}
                         </div>
@@ -1154,20 +1168,44 @@
 
                 let filteredOrders = orders;
                 
-                // Jika Live Schedule: TAMPILKAN SEMUA tanpa terpengaruh filter
                 if (isPublicSchedule) {
                     filteredOrders = filteredOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
                 } else {
-                    // Filter Status Tab (Aktif vs Arsip)
-                    filteredOrders = filteredOrders.filter(o => jadwalTab === 'aktif' ? (isOrderActive(o.status) || o.status.includes('Komplain')) : (['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain')));
+                    const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang'].some(s => jadwalFilterStatus.includes(s));
+                    
+                    if (!bypassDateFilter && jadwalViewLayout === 'list') {
+                        if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
+                        if (financeFilter.endDate) filteredOrders = filteredOrders.filter(o => o.date <= financeFilter.endDate);
+                    }
 
-                    // Filter Atribut Lain
+                    filteredOrders = filteredOrders.filter(o => jadwalTab === 'aktif' ? (isOrderActive(o.status) || o.status.includes('Komplain')) : (['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain')));
+                    
+                    if (jadwalTab === 'aktif' && jadwalViewLayout === 'list') {
+                        if (jadwalViewMode === 'hari_ini') {
+                            filteredOrders = filteredOrders.filter(o => o.date === todayStr);
+                        } else if (jadwalViewMode === 'minggu_ini') {
+                            filteredOrders = filteredOrders.filter(o => {
+                                const d = new Date(o.date);
+                                return d >= mondayDate && d <= sundayDate;
+                            });
+                        } else if (jadwalViewMode === 'minggu_depan') {
+                            filteredOrders = filteredOrders.filter(o => {
+                                const d = new Date(o.date);
+                                return d >= nextMonday && d <= nextSunday;
+                            });
+                        } else if (jadwalViewMode === 'tertunda') {
+                            filteredOrders = filteredOrders.filter(o => o.date < todayStr);
+                        }
+                    }
+
                     if (jadwalFilterTech) filteredOrders = filteredOrders.filter(o => o.technician_name === jadwalFilterTech);
                     if (jadwalFilterStatus) filteredOrders = filteredOrders.filter(o => o.status === jadwalFilterStatus);
+                    
                     if (jadwalFilterVendor) {
                         if (jadwalFilterVendor === 'Reguler') filteredOrders = filteredOrders.filter(o => !o.vendor_name);
                         else filteredOrders = filteredOrders.filter(o => o.vendor_name === jadwalFilterVendor);
                     }
+                    
                     if (jadwalSearch) {
                         const s = jadwalSearch.toLowerCase();
                         filteredOrders = filteredOrders.filter(o => 
@@ -1177,42 +1215,10 @@
                             (o.phone && o.phone.includes(s))
                         );
                     }
-
-                    // Terapkan Filter Tanggal / Waktu HANYA jika tampilannya List View.
-                    // Kalender bebas melihat ke bulan/waktu berapapun
-                    if (jadwalViewLayout === 'list') {
-                        const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang'].some(s => jadwalFilterStatus.includes(s));
-                        
-                        if (!bypassDateFilter) {
-                            if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
-                            if (financeFilter.endDate) filteredOrders = filteredOrders.filter(o => o.date <= financeFilter.endDate);
-                        }
-                        
-                        if (jadwalTab === 'aktif') {
-                            if (jadwalViewMode === 'hari_ini') {
-                                filteredOrders = filteredOrders.filter(o => o.date === todayStr);
-                            } else if (jadwalViewMode === 'minggu_ini') {
-                                filteredOrders = filteredOrders.filter(o => {
-                                    const d = new Date(o.date);
-                                    return d >= mondayDate && d <= sundayDate;
-                                });
-                            } else if (jadwalViewMode === 'minggu_depan') {
-                                filteredOrders = filteredOrders.filter(o => {
-                                    const d = new Date(o.date);
-                                    return d >= nextMonday && d <= nextSunday;
-                                });
-                            } else if (jadwalViewMode === 'tertunda') {
-                                filteredOrders = filteredOrders.filter(o => o.date < todayStr);
-                            }
-                        }
-                    }
                 }
 
                 const handleEventClick = (o) => {
-                    if (isPublicSchedule) return;
-                    setModalParts(o.order_parts||[]); 
-                    setSelectedOrder(o); 
-                    setShowOrderModal(true);
+                    setQuickViewOrder(o);
                 }
 
                 const renderCalendar = () => {
@@ -1256,7 +1262,7 @@
 
                     const renderEventCard = (o) => (
                         <div key={o.id} onClick={() => handleEventClick(o)} 
-                             className={`p-1.5 mb-1.5 rounded border text-xs font-bold ${isPublicSchedule ? 'cursor-default' : 'cursor-pointer'} transition-colors shadow-sm leading-tight ${getStatusColor(o.status)}`}
+                             className={`p-1.5 mb-1.5 rounded border text-xs font-bold cursor-pointer transition-colors shadow-sm leading-tight ${getStatusColor(o.status)}`}
                              title={`${o.customer} - ${o.unit} \n${o.address}`}>
                             <div className="truncate">{o.customer.split(' ')[0]} • {getShortLocation(o.address)}</div>
                             {o.time_estimate && <div className="text-[10px] font-medium opacity-80 mt-0.5"><i className="fa-regular fa-clock"></i> {o.time_estimate}</div>}
@@ -1279,7 +1285,7 @@
                         while (cells.length % 7 !== 0) cells.push(null);
 
                         calendarContent = (
-                            <div className="w-full overflow-x-auto mt-4">
+                            <div className="calendar-scroll-container mt-4">
                                 <div className="min-w-[800px] grid grid-cols-7 border-t border-l border-slate-200 bg-slate-100 rounded-xl overflow-hidden">
                                     {dayNames.map(day => (
                                         <div key={day} className="bg-slate-50 text-center py-2 text-xs font-black uppercase tracking-widest text-slate-500 border-r border-b border-slate-200">
@@ -1294,11 +1300,11 @@
                                         const isToday = dateStr === getLocalDateString(new Date());
 
                                         return (
-                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[130px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
+                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[120px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
                                                 <p className={`text-right text-sm font-bold mb-1.5 ${isToday ? 'text-red-600 font-black' : 'text-slate-400'}`}>
                                                     {isToday ? <span className="bg-red-500 text-white rounded-full w-6 h-6 inline-flex items-center justify-center">{date.getDate()}</span> : date.getDate()}
                                                 </p>
-                                                <div className="space-y-1 max-h-[100px] overflow-y-auto pr-1">
+                                                <div className="space-y-1 max-h-[90px] overflow-y-auto pr-1">
                                                     {dayEvents.map(renderEventCard)}
                                                 </div>
                                             </div>
@@ -1316,7 +1322,7 @@
                         headerTitle = `Minggu, ${weekDaysArr[0].getDate()} ${monthNames[weekDaysArr[0].getMonth()].substring(0,3)} - ${weekDaysArr[6].getDate()} ${monthNames[weekDaysArr[6].getMonth()].substring(0,3)}`;
 
                         calendarContent = (
-                            <div className="w-full overflow-x-auto mt-4">
+                            <div className="calendar-scroll-container mt-4">
                                 <div className="min-w-[800px] grid grid-cols-7 gap-0 border-t border-l border-slate-200 bg-transparent rounded-xl">
                                     {weekDaysArr.map((date, index) => {
                                         const dateStr = getLocalDateString(date);
@@ -1324,7 +1330,7 @@
                                         const isToday = dateStr === getLocalDateString(new Date());
                                         
                                         return (
-                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[200px] p-3 transition-colors ${isToday ? 'ring-2 ring-red-400 z-10' : ''}`}>
+                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[150px] p-3 transition-colors ${isToday ? 'ring-2 ring-red-400 z-10' : ''}`}>
                                                 <div className={`text-center pb-2 mb-2 border-b ${isToday ? 'border-red-200 text-red-600' : 'border-slate-100 text-slate-500'}`}>
                                                     <p className="text-xs font-black uppercase tracking-widest">{dayNames[index]}</p>
                                                     <p className={`text-2xl font-black ${isToday ? 'text-red-600' : 'text-slate-800'}`}>{date.getDate()}</p>
@@ -1373,7 +1379,7 @@
                                     <i className="fa-solid fa-layer-group"></i> Input Massal
                                 </button>
                                 <button onClick={() => { setSelectedOrder(null); setModalParts([]); setShowOrderModal(true); }} className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-md flex justify-center items-center gap-2 active:scale-95 transition-all">
-                                    <i className="fa-solid fa-plus"></i> Buat Order Baru
+                                    <i className="fa-solid fa-plus"></i> Buat Baru
                                 </button>
                             </div>
                         )}
@@ -1402,7 +1408,7 @@
                             
                             {!isPublicSchedule && (
                                 <div className="flex flex-wrap gap-2 w-full sm:w-auto flex-1">
-                                    <div className="flex bg-white border border-slate-200 rounded-lg px-2 items-center flex-1 min-w-[150px] focus-within:border-red-400">
+                                    <div className="flex bg-white border border-slate-200 rounded-lg px-3 items-center flex-1 min-w-[150px] focus-within:border-red-400">
                                         <i className="fa-solid fa-search text-slate-400 text-sm ml-1"></i>
                                         <input type="text" value={jadwalSearch} onChange={e => setJadwalSearch(e.target.value)} placeholder="Cari klien, unit..." className="p-2 text-sm font-bold text-slate-600 outline-none w-full bg-transparent" />
                                     </div>
@@ -1411,7 +1417,7 @@
                                         <option value="Reguler">Hanya Reguler</option>
                                         {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
                                     </select>
-                                    <select value={jadwalFilterTech} onChange={e => setJadwalFilterTech(e.target.value)} className="w-full sm:w-36 bg-white border border-slate-200 p-2 rounded-lg text-sm font-bold text-slate-600 outline-none focus:border-red-400">
+                                    <select value={jadwalFilterTech} onChange={e => setJadwalFilterTech(e.target.value)} className="w-full sm:w-40 bg-white border border-slate-200 p-2 rounded-lg text-sm font-bold text-slate-600 outline-none focus:border-red-400">
                                         <option value="">Semua Teknisi</option>
                                         <option value="Belum Ditugaskan">Belum Ditugaskan</option>
                                         {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
@@ -1463,10 +1469,7 @@
                                                 
                                                 const techObj = technicians.find(t => t.name === o.technician_name);
                                                 const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
-                                                const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
-                                                const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
-                                                const waTechMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0ACek detailnya di portal teknisi kamu ya:%0A${magicLink}`;
-
+                                                
                                                 return (
                                                 <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
                                                     <td className="p-4 align-top">
@@ -1478,7 +1481,7 @@
                                                     <td className="p-4 align-top">
                                                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                                                             <p className="font-black text-slate-800 text-base">{o.customer}</p>
-                                                            {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-[10px] px-2 py-1 rounded uppercase font-black border border-purple-200" title="Vendor"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
+                                                            {o.vendor_name && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5 rounded uppercase font-black border border-purple-200" title="Vendor"><i className="fa-solid fa-handshake"></i> {o.vendor_name}</span>}
                                                             {!isPublicSchedule && (
                                                                 <>
                                                                     <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:text-emerald-600 bg-emerald-50 px-2 py-1 rounded hover:bg-emerald-100 transition-colors" title="Chat WA Klien"><i className="fa-brands fa-whatsapp"></i></a>
@@ -1495,9 +1498,9 @@
                                                     <td className="p-4 align-top">
                                                         <div className="mb-2">
                                                             {techPhone && !isPublicSchedule ? (
-                                                                <a href={`https://wa.me/${techPhone}?text=${waTechMsg}`} target="_blank" className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2 py-1 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
+                                                                <button onClick={() => window.open(`https://wa.me/${techPhone}?text=${getWaTechMsg(o)}`, '_blank')} className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2 py-1 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
                                                                     <i className="fa-brands fa-whatsapp text-emerald-500"></i> {o.technician_name}
-                                                                </a>
+                                                                </button>
                                                             ) : (
                                                                 <span className="bg-slate-100 text-slate-600 border-slate-200 text-xs font-bold px-2 py-1 rounded-md inline-flex items-center gap-1 shadow-sm">
                                                                     <i className="fa-solid fa-helmet-safety opacity-50"></i> {o.technician_name}
@@ -1811,8 +1814,206 @@
                 </div>
             );
 
+            const renderTeknisiPortal = () => {
+                const todayStr = getLocalDateString(new Date());
+                const myOrders = orders.filter(o => o.technician_name === currentUser.name && (isOrderActive(o.status) || o.status.includes('Komplain')));
+                
+                const upcomingOrders = myOrders.filter(o => o.date >= todayStr).sort((a,b) => new Date(a.date) - new Date(b.date));
+                const overdueOrders = myOrders.filter(o => o.date < todayStr).sort((a,b) => new Date(b.date) - new Date(a.date));
+                
+                const todayDateObj = new Date();
+                const dayOfWeek = todayDateObj.getDay(); 
+                const diffToMonday = todayDateObj.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const mondayDate = new Date(todayDateObj);
+                mondayDate.setDate(diffToMonday);
+
+                const daysOfWkIndo = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+                const weeklySchedule = Array.from({length: 7}, (_, i) => {
+                    const d = new Date(mondayDate);
+                    d.setDate(mondayDate.getDate() + i);
+                    const dStr = getLocalDateString(d);
+                    return {
+                        dateStr: dStr,
+                        dayName: daysOfWkIndo[i],
+                        displayDate: d.toLocaleDateString('id-ID', {day:'numeric', month:'short'}),
+                        dailyOrders: myOrders.filter(o => o.date === dStr)
+                    };
+                });
+
+                const renderTechOrderCard = (o) => {
+                    const finalWaPhone = getCleanPhone(o.phone);
+                    const mapsHref = o.maps_link ? o.maps_link : `https://maps.google.com/?q=${encodeURIComponent(o.address)}`;
+                    return (
+                        <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
+                            <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                                o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
+                                o.status.includes('Komplain') ? 'bg-orange-500' :
+                                o.status.includes('Selesai') ? 'bg-emerald-500' : 
+                                'bg-red-500'
+                            }`}></div>
+                            <div className="p-5 pb-4">
+                                <div className="flex justify-between items-start mb-4">
+                                    <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'short'})}</span>
+                                    <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
+                                        o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                        o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                                        o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
+                                        'bg-red-50 text-red-700 border-red-200'
+                                    }`}>{o.status}</span>
+                                </div>
+                                
+                                <h3 className="font-black text-xl text-slate-800 leading-tight mb-1">{o.customer}</h3>
+                                {o.time_estimate && <p className="text-xs text-blue-600 font-bold mb-2 flex items-center gap-1.5"><i className="fa-regular fa-clock"></i> Estimasi Datang: {o.time_estimate}</p>}
+                                <p className="text-sm text-red-600 font-bold mb-4 flex items-center gap-1.5"><i className="fa-solid fa-gear opacity-70"></i> {o.unit}</p>
+                                
+                                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl mb-5 shadow-inner">
+                                    <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest mb-1.5 flex items-center gap-1"><i className="fa-solid fa-triangle-exclamation text-red-500"></i> Kendala Laporan:</p>
+                                    <p className="font-bold text-slate-800 text-sm leading-relaxed">{o.issue}</p>
+                                </div>
+
+                                <div className="flex gap-2">
+                                    <a href={`https://wa.me/${finalWaPhone}`} target="_blank" className="flex-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-emerald-200 transition-colors shadow-sm active:scale-95">
+                                        <i className="fa-brands fa-whatsapp text-lg"></i> Chat Klien
+                                    </a>
+                                    <button onClick={() => copyToClipboard(finalWaPhone, 'Nomor WA berhasil disalin! Buka WA Kloningmu dan paste.')} className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-4 rounded-xl border border-slate-200 shadow-sm active:scale-95 transition-colors" title="Salin Nomor WA (Untuk WA Kloning)">
+                                        <i className="fa-regular fa-copy text-lg"></i>
+                                    </button>
+                                    <a href={mapsHref} target="_blank" className="flex-1 bg-blue-50 text-blue-700 hover:bg-blue-100 py-3 rounded-xl text-xs font-bold flex justify-center items-center gap-2 border border-blue-200 transition-colors shadow-sm active:scale-95">
+                                        <i className="fa-solid fa-map-location-dot text-lg"></i> Buka Maps
+                                    </a>
+                                </div>
+                            </div>
+                            <div className="border-t border-slate-100 p-4 bg-slate-50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <p className="text-[11px] font-bold text-slate-500 flex-1 leading-snug break-words"><i className="fa-solid fa-location-dot mr-1 text-slate-400"></i> {o.address}</p>
+                                <button onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }} className="w-full sm:w-auto bg-slate-800 hover:bg-slate-900 text-white px-5 py-3 rounded-xl text-xs font-bold shadow-md shrink-0 transition-colors active:scale-95">Update Progres</button>
+                            </div>
+                        </div>
+                    );
+                };
+
+                return (
+                    <div className="space-y-6 max-w-lg mx-auto pb-10 fade-in">
+                        <div className="bg-slate-900 p-6 rounded-2xl text-white shadow-xl relative overflow-hidden border border-slate-800">
+                            <div className="relative z-10">
+                                <h2 className="text-2xl font-black mb-1 leading-tight tracking-tight">Halo, {currentUser.name}!</h2>
+                                <p className="text-slate-400 text-xs font-medium uppercase tracking-widest mt-1">Portal Teknisi Lapangan</p>
+                            </div>
+                            <i className="fa-solid fa-helmet-safety absolute -bottom-6 -right-4 text-8xl text-slate-700 opacity-30"></i>
+                        </div>
+
+                        <div className="flex bg-white shadow-sm p-1.5 rounded-xl border border-slate-200">
+                            <button onClick={() => setJadwalTab('list')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'list' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Tugas Terkini</button>
+                            <button onClick={() => setJadwalTab('calendar')} className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${jadwalTab === 'calendar' ? 'bg-red-50 text-red-700 shadow-sm border border-red-100' : 'text-slate-500 hover:text-slate-700'}`}>Jadwal Mingguan</button>
+                        </div>
+
+                        {jadwalTab === 'list' ? (
+                            <div className="space-y-6">
+                                <div>
+                                    <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                        <i className="fa-solid fa-calendar-day"></i> Jadwal Hari Ini & Mendatang
+                                    </h3>
+                                    <div className="space-y-4">
+                                        {upcomingOrders.map(renderTechOrderCard)}
+                                        {upcomingOrders.length === 0 && (
+                                            <div className="text-center bg-white border border-slate-200 rounded-2xl p-10 shadow-sm">
+                                                <i className="fa-regular fa-face-smile text-4xl text-slate-300 mb-3 block"></i>
+                                                <p className="text-slate-800 font-bold text-sm mb-1">Jadwal Kosong</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {overdueOrders.length > 0 && (
+                                    <div className="bg-orange-50 border border-orange-200 p-4 rounded-2xl">
+                                        <h3 className="text-xs font-black text-orange-700 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                            <i className="fa-solid fa-clock-rotate-left"></i> Pengerjaan Tertunda / Berlanjut
+                                        </h3>
+                                        <div className="space-y-4">
+                                            {overdueOrders.map(renderTechOrderCard)}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5">
+                                <h3 className="font-black text-slate-800 mb-5 border-b border-slate-100 pb-3 uppercase tracking-wider text-sm flex items-center gap-2">
+                                    <i className="fa-regular fa-calendar-days text-red-600"></i> Sinkronisasi Jadwal Mingguan
+                                </h3>
+                                <div className="space-y-4">
+                                    {weeklySchedule.map((dayData) => (
+                                        <div key={dayData.dateStr} className="flex gap-4 items-start border-l-2 border-slate-100 pl-4 py-1 relative">
+                                            <div className={`absolute -left-[5px] top-2 w-2 h-2 rounded-full ${dayData.dateStr === todayStr ? 'bg-red-500 animate-pulse' : 'bg-slate-300'}`}></div>
+                                            <div className="w-16 shrink-0 mt-0.5">
+                                                <p className="text-xs font-black text-slate-600 uppercase tracking-widest">{dayData.dayName}</p>
+                                                <p className="text-[10px] text-slate-400 font-bold">{dayData.displayDate}</p>
+                                            </div>
+                                            <div className="flex-1 space-y-2">
+                                                {dayData.dailyOrders.length > 0 ? dayData.dailyOrders.map(o => (
+                                                    <div key={o.id} className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs cursor-pointer hover:border-red-300 hover:shadow-sm transition-all" onClick={() => { setModalParts(o.order_parts||[]); setSelectedOrder(o); setShowOrderModal(true); }}>
+                                                        <p className="font-bold text-slate-800 mb-0.5">{o.customer} <span className="text-blue-500 font-bold ml-1">{o.time_estimate}</span></p>
+                                                        <p className="text-slate-500 truncate font-medium flex items-center gap-1"><i className="fa-solid fa-gear opacity-50"></i> {o.unit}</p>
+                                                    </div>
+                                                )) : <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest mt-1">Kosong</p>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )
+            };
+
             const renderModals = () => (
                 <>
+                    {/* Quick View Calendar Detail Modal */}
+                    {quickViewOrder && (
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm fade-in" onClick={() => setQuickViewOrder(null)}>
+                            <div className="bg-white rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden border border-slate-200" onClick={e => e.stopPropagation()}>
+                                <div className="p-5">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{new Date(quickViewOrder.date).toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long'})}</p>
+                                    <h3 className="text-xl font-black text-slate-800 leading-tight mb-2">{quickViewOrder.customer}</h3>
+                                    
+                                    <div className="space-y-3 mt-4">
+                                        <div className="flex gap-3 items-start">
+                                            <i className="fa-solid fa-gear text-slate-400 mt-1"></i>
+                                            <div>
+                                                <p className="text-xs font-bold text-slate-700">{quickViewOrder.unit}</p>
+                                                <p className="text-xs text-red-600 font-medium">{quickViewOrder.issue}</p>
+                                            </div>
+                                        </div>
+                                        {quickViewOrder.time_estimate && (
+                                            <div className="flex gap-3 items-start">
+                                                <i className="fa-regular fa-clock text-blue-500 mt-1"></i>
+                                                <p className="text-xs font-bold text-blue-700">{quickViewOrder.time_estimate}</p>
+                                            </div>
+                                        )}
+                                        <div className="flex gap-3 items-start">
+                                            <i className="fa-solid fa-location-dot text-emerald-500 mt-1"></i>
+                                            <div>
+                                                <p className="text-xs font-medium text-slate-600 leading-relaxed">{quickViewOrder.address}</p>
+                                                {quickViewOrder.maps_link && (
+                                                    <a href={quickViewOrder.maps_link} target="_blank" className="text-xs font-bold text-emerald-600 hover:underline mt-1 inline-block">Buka di Google Maps &rarr;</a>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {!isPublicSchedule && role === 'admin' && (
+                                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                                        <button onClick={() => {
+                                            setModalParts(quickViewOrder.order_parts||[]); 
+                                            setSelectedOrder(quickViewOrder); 
+                                            setQuickViewOrder(null);
+                                            setShowOrderModal(true);
+                                        }} className="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-4 py-2 rounded-xl shadow-sm hover:text-red-600 active:scale-95 transition-all">Edit Lengkap</button>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Modal Edit Order / Progress */}
                     {showOrderModal && selectedOrder && (
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm fade-in">
@@ -1821,17 +2022,17 @@
                                 <div className="bg-white border-b border-slate-200 p-5 flex justify-between items-center shrink-0 z-10 shadow-sm relative">
                                     <div className="overflow-hidden">
                                         <h3 className="font-black text-xl text-slate-800 leading-tight">{role === 'admin' ? 'Kelola Detail Pengerjaan' : 'Laporan Update Teknisi'}</h3>
-                                        <p className="text-xs text-slate-500 font-bold mt-1.5 uppercase tracking-wider truncate">{selectedOrder.order_id_text} • {selectedOrder.customer}</p>
+                                        <p className="text-xs text-slate-500 font-bold mt-1 uppercase tracking-wider truncate">{selectedOrder.order_id_text} • {selectedOrder.customer}</p>
                                     </div>
-                                    <button type="button" onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 w-12 h-12 flex items-center justify-center shrink-0 rounded-full transition-colors ml-2"><i className="fa-solid fa-xmark text-lg"></i></button>
+                                    <button type="button" onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-red-600 bg-slate-100 hover:bg-red-50 w-10 h-10 flex items-center justify-center shrink-0 rounded-full transition-colors ml-2"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
                                 
                                 <div className="p-5 sm:p-6 overflow-y-auto flex-1 bg-slate-50 relative pb-32">
                                     <form id="orderForm" onSubmit={handleSaveUpdateOrder} className="space-y-6">
                                         
-                                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                                            <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block flex items-center gap-2"><i className="fa-solid fa-bars-progress text-lg"></i> Status Progres</label>
-                                            <select name="status" defaultValue={selectedOrder.status} className="w-full font-bold text-slate-800 border-2 border-slate-200 p-4 rounded-xl outline-none focus:border-red-500 bg-slate-50 shadow-inner cursor-pointer text-base">
+                                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-solid fa-bars-progress"></i> Status Progres</label>
+                                            <select name="status" defaultValue={selectedOrder.status} className="w-full font-bold text-slate-800 border-2 border-slate-200 p-3.5 rounded-xl outline-none focus:border-red-500 bg-slate-50 shadow-inner cursor-pointer text-sm sm:text-base">
                                                 <option value="Proses">Sedang Dikerjakan (Proses)</option>
                                                 <option value="Pending/Tunggu Sparepart">Pending / Tunggu Sparepart</option>
                                                 <option value="Pengerjaan Lanjutan">Jadwal Pengerjaan Lanjutan</option>
@@ -1842,57 +2043,57 @@
                                                 {role === 'admin' && <option value="Batal" className="font-black text-red-600">BATAL</option>}
                                             </select>
                                             {selectedOrder.status !== 'Lunas' && (
-                                                <p className="text-xs text-emerald-600 font-bold mt-3"><i className="fa-solid fa-circle-info mr-1.5"></i>Pilih "Lunas" untuk otomatis memindahkan total ke Arus Kas Berjalan.</p>
+                                                <p className="text-[10px] text-emerald-600 font-bold mt-2"><i className="fa-solid fa-circle-info mr-1"></i>Pilih "Lunas" untuk otomatis memindahkan total ke Arus Kas Berjalan.</p>
                                             )}
                                         </div>
 
                                         {role === 'admin' && (
-                                            <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-5">
+                                            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Nama Pelanggan</label>
-                                                    <input type="text" name="customer" defaultValue={selectedOrder.customer} className="w-full p-4 border border-slate-200 rounded-xl text-base font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nama Pelanggan</label>
+                                                    <input type="text" name="customer" defaultValue={selectedOrder.customer} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Nomor WA</label>
-                                                    <input type="text" name="phone" defaultValue={selectedOrder.phone} className="w-full p-4 border border-slate-200 rounded-xl text-base font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Nomor WA</label>
+                                                    <input type="text" name="phone" defaultValue={selectedOrder.phone} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Tanggal Penjadwalan</label>
-                                                    <input type="date" name="date" defaultValue={selectedOrder.date} className="w-full p-4 border border-slate-200 rounded-xl text-base font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tanggal Penjadwalan</label>
+                                                    <input type="date" name="date" defaultValue={selectedOrder.date} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div>
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Tugaskan Teknisi</label>
-                                                    <select name="technician" defaultValue={selectedOrder.technician_name} className="w-full p-4 border border-slate-200 rounded-xl text-base font-bold bg-slate-50 outline-none focus:border-red-400">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tugaskan Teknisi</label>
+                                                    <select name="technician" defaultValue={selectedOrder.technician_name} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400">
                                                         <option value="Belum Ditugaskan">-- Belum Ditugaskan --</option>
                                                         {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
                                                     </select>
                                                 </div>
                                                 <div>
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Estimasi Waktu Datang</label>
-                                                    <input type="text" name="time_estimate" defaultValue={selectedOrder.time_estimate} placeholder="Cth: 08:00 - 10:00" className="w-full p-4 border border-slate-200 rounded-xl text-base font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Estimasi Waktu Datang</label>
+                                                    <input type="text" name="time_estimate" defaultValue={selectedOrder.time_estimate} placeholder="Cth: 08:00 - 10:00" className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 
-                                                <div className="sm:col-span-2 border-t border-slate-100 pt-5 mt-2">
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Tipe Alat (Unit)</label>
-                                                    <input type="text" name="unit" defaultValue={selectedOrder.unit} className="w-full p-4 border border-slate-200 rounded-xl text-base font-bold bg-slate-50 outline-none focus:border-red-400" />
+                                                <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Tipe Alat (Unit)</label>
+                                                    <input type="text" name="unit" defaultValue={selectedOrder.unit} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Detail Kendala</label>
-                                                    <textarea name="issue" rows="2" defaultValue={selectedOrder.issue} className="w-full p-4 border border-slate-200 rounded-xl text-base font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Detail Kendala</label>
+                                                    <textarea name="issue" rows="2" defaultValue={selectedOrder.issue} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
                                                 </div>
 
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Link Google Maps (Opsional)</label>
-                                                    <input type="url" name="maps_link" defaultValue={selectedOrder.maps_link} placeholder="Cth: https://maps.app.goo.gl/..." className="w-full p-4 border border-slate-200 rounded-xl text-base font-medium bg-slate-50 outline-none focus:border-red-400" />
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Link Google Maps (Opsional)</label>
+                                                    <input type="url" name="maps_link" defaultValue={selectedOrder.maps_link} placeholder="Cth: https://maps.app.goo.gl/..." className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400" />
                                                 </div>
                                                 <div className="sm:col-span-2">
-                                                    <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2 block">Alamat Teks</label>
-                                                    <textarea name="address" rows="3" defaultValue={selectedOrder.address} className="w-full p-4 border border-slate-200 rounded-xl text-base font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
+                                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1.5 block">Alamat Teks</label>
+                                                    <textarea name="address" rows="2" defaultValue={selectedOrder.address} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-medium bg-slate-50 outline-none focus:border-red-400 resize-none"></textarea>
                                                 </div>
                                                 
-                                                <div className="sm:col-span-2 border-t border-slate-100 pt-5 mt-2">
-                                                    <label className="text-xs font-black text-purple-600 uppercase tracking-widest mb-2 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (B2B)</label>
-                                                    <select name="vendor_name" defaultValue={selectedOrder.vendor_name || ''} className="w-full p-4 border border-purple-200 rounded-xl text-base font-bold bg-purple-50 outline-none focus:border-purple-500 text-purple-800">
+                                                <div className="sm:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                                                    <label className="text-[9px] font-black text-purple-600 uppercase tracking-widest mb-1.5 block"><i className="fa-solid fa-handshake"></i> Asal Vendor (B2B)</label>
+                                                    <select name="vendor_name" defaultValue={selectedOrder.vendor_name || ''} className="w-full p-3 border border-purple-200 rounded-xl text-sm font-bold bg-purple-50 outline-none focus:border-purple-500 text-purple-800">
                                                         <option value="">-- Bukan dari Vendor (Reguler) --</option>
                                                         {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
                                                     </select>
@@ -1900,25 +2101,25 @@
                                             </div>
                                         )}
 
-                                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                                            <div className="flex justify-between items-center mb-5">
-                                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><i className="fa-solid fa-receipt text-lg"></i> Rincian Jasa & Sparepart</label>
-                                                <button type="button" onClick={() => setModalParts([...modalParts, {name: '', price: 0, warranty_months: 0, is_estimate: false, estimate_text: ''}])} className="text-xs font-black bg-red-50 text-red-700 px-4 py-2 rounded-xl border border-red-200 hover:bg-red-100 uppercase tracking-wider flex items-center gap-1.5 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-plus"></i> Tambah Baris</button>
+                                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5"><i className="fa-solid fa-receipt"></i> Rincian Jasa & Sparepart</label>
+                                                <button type="button" onClick={() => setModalParts([...modalParts, {name: '', price: 0, warranty_months: 0, is_estimate: false, estimate_text: ''}])} className="text-[10px] font-black bg-red-50 text-red-700 px-3 py-1.5 rounded-lg border border-red-200 hover:bg-red-100 uppercase tracking-wider flex items-center gap-1 active:scale-95 transition-all shadow-sm"><i className="fa-solid fa-plus"></i> Tambah Baris</button>
                                             </div>
                                             
                                             <div className="border border-slate-200 rounded-xl overflow-hidden shadow-inner bg-slate-50">
                                                 {modalParts.map((part, idx) => (
-                                                    <div key={idx} className="p-5 border-b border-slate-200 flex flex-col sm:flex-row gap-4 relative group bg-white">
+                                                    <div key={idx} className="p-4 border-b border-slate-200 flex flex-col sm:flex-row gap-3 relative group bg-white">
                                                         <div className="flex-1 w-full">
-                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Deskripsi</label>
+                                                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Deskripsi</label>
                                                             <input type="text" value={part.name} onChange={e => { const newP = [...modalParts]; newP[idx].name = e.target.value; setModalParts(newP); }} placeholder="Cth: Ganti V-Belt, atau Potongan Harga..." className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50" required />
                                                         </div>
                                                         
-                                                        <div className="w-full sm:w-56 relative">
-                                                            <div className="flex justify-between items-center mb-2">
-                                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Harga / Diskon (-)</label>
-                                                                <label className="text-[10px] font-bold text-orange-600 flex items-center gap-1 cursor-pointer select-none">
-                                                                    <input type="checkbox" checked={part.is_estimate} onChange={e => { const newP = [...modalParts]; newP[idx].is_estimate = e.target.checked; setModalParts(newP); }} className="accent-orange-500 w-3.5 h-3.5" />
+                                                        <div className="w-full sm:w-48 relative">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Harga / Diskon (-)</label>
+                                                                <label className="text-[9px] font-bold text-orange-600 flex items-center gap-1 cursor-pointer select-none">
+                                                                    <input type="checkbox" checked={part.is_estimate} onChange={e => { const newP = [...modalParts]; newP[idx].is_estimate = e.target.checked; setModalParts(newP); }} className="accent-orange-500" />
                                                                     Estimasi?
                                                                 </label>
                                                             </div>
@@ -1927,7 +2128,7 @@
                                                                 <input type="text" value={part.estimate_text} onChange={e => { const newP = [...modalParts]; newP[idx].estimate_text = e.target.value; setModalParts(newP); }} placeholder="Cth: 1 Jt - 1.5 Jt" className="w-full p-3 border border-orange-200 rounded-xl text-sm font-bold outline-none focus:border-orange-400 bg-orange-50 text-orange-700" required />
                                                             ) : (
                                                                 <>
-                                                                    <span className="absolute left-4 top-[32px] text-slate-400 font-bold text-sm">Rp</span>
+                                                                    <span className="absolute left-3 top-[26px] text-slate-400 font-bold text-sm">Rp</span>
                                                                     <input type="text" value={part.price < 0 ? `-${formatNumberStr(Math.abs(part.price))}` : formatNumberStr(part.price)} onChange={e => { 
                                                                         const val = e.target.value;
                                                                         const isNegative = val.startsWith('-');
@@ -1935,53 +2136,62 @@
                                                                         const newP = [...modalParts]; 
                                                                         newP[idx].price = isNegative ? -num : num; 
                                                                         setModalParts(newP); 
-                                                                    }} className={`w-full p-3 pl-11 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50 ${part.price < 0 ? 'text-red-600' : 'text-slate-800'}`} required />
+                                                                    }} className={`w-full p-3 pl-9 border border-slate-200 rounded-xl text-sm font-bold outline-none focus:border-red-400 bg-slate-50 ${part.price < 0 ? 'text-red-600' : 'text-slate-800'}`} required />
                                                                 </>
                                                             )}
                                                         </div>
                                                         
                                                         <div className="w-full sm:w-28 relative">
-                                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Garansi</label>
+                                                            <label className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1 block">Garansi</label>
                                                             <input type="number" value={part.warranty_months} onChange={e => { const newP = [...modalParts]; newP[idx].warranty_months = e.target.value; setModalParts(newP); }} placeholder="0" className="w-full p-3 pr-8 border border-slate-200 rounded-xl text-sm text-center font-bold outline-none focus:border-red-400 bg-slate-50" />
-                                                            <span className="absolute right-3 top-[32px] text-xs text-slate-500 font-bold uppercase">Bln</span>
+                                                            <span className="absolute right-3 top-[28px] text-[10px] text-slate-500 font-bold uppercase">Bln</span>
                                                         </div>
                                                         
-                                                        <button type="button" onClick={() => { const newP = [...modalParts]; newP.splice(idx,1); setModalParts(newP); }} className="sm:absolute sm:-right-2 sm:-top-2 mt-3 sm:mt-0 bg-red-50 sm:bg-white border border-red-200 sm:border-slate-200 text-red-600 sm:text-red-500 rounded-xl sm:rounded-full w-full sm:w-7 sm:h-7 py-2.5 sm:py-0 flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-100 shadow-sm transition-all text-sm font-bold"><i className="fa-solid fa-trash sm:fa-xmark mr-2 sm:mr-0"></i><span className="sm:hidden">Hapus Baris Ini</span></button>
+                                                        <button type="button" onClick={() => { const newP = [...modalParts]; newP.splice(idx,1); setModalParts(newP); }} className="sm:absolute sm:-right-2 sm:-top-2 mt-2 sm:mt-0 bg-red-50 sm:bg-white border border-red-200 sm:border-slate-200 text-red-600 sm:text-red-500 rounded-xl sm:rounded-full w-full sm:w-6 sm:h-6 py-2 sm:py-0 flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 hover:bg-red-100 shadow-sm transition-all text-xs font-bold"><i className="fa-solid fa-trash sm:fa-xmark mr-1 sm:mr-0"></i><span className="sm:hidden">Hapus Baris</span></button>
                                                     </div>
                                                 ))}
-                                                {modalParts.length === 0 && <div className="p-8 text-center text-sm text-slate-400 font-bold uppercase tracking-wider"><i className="fa-solid fa-square-plus text-3xl mb-3 opacity-30 block"></i>Belum ada rincian. Klik Tambah Baris.</div>}
-                                                <div className="p-6 bg-slate-100 flex justify-between items-center border-t border-slate-200">
-                                                    <span className="text-xs font-black text-slate-500 uppercase tracking-widest">Total Tagihan (Pasti):</span>
-                                                    <span className="text-3xl font-black text-red-700">{formatRupiah(modalParts.reduce((s, p)=>s + (p.is_estimate ? 0 : Number(p.price)),0))}</span>
+                                                {modalParts.length === 0 && <div className="p-6 text-center text-xs text-slate-400 font-bold uppercase tracking-wider"><i className="fa-solid fa-square-plus text-2xl mb-2 opacity-30 block"></i>Belum ada rincian. Klik Tambah Baris.</div>}
+                                                <div className="p-5 bg-slate-100 flex justify-between items-center border-t border-slate-200">
+                                                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Total Tagihan (Pasti):</span>
+                                                    <span className="text-2xl font-black text-red-700">{formatRupiah(modalParts.reduce((s, p)=>s + (p.is_estimate ? 0 : Number(p.price)),0))}</span>
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-                                            <label className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 block flex items-center gap-2"><i className="fa-regular fa-clipboard text-lg"></i> Catatan Laporan</label>
-                                            <textarea name="notes" rows="4" defaultValue={selectedOrder.notes} placeholder="Detail pengerjaan, alasan pending..." className="w-full font-medium text-slate-700 border-2 border-slate-200 p-4 rounded-xl outline-none focus:border-red-400 bg-slate-50 resize-none shadow-inner text-base"></textarea>
+                                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-regular fa-clipboard"></i> Catatan Laporan</label>
+                                            <textarea name="notes" rows="3" defaultValue={selectedOrder.notes} placeholder="Detail pengerjaan, alasan pending..." className="w-full font-medium text-slate-700 border-2 border-slate-200 p-4 rounded-xl outline-none focus:border-red-400 bg-slate-50 resize-none shadow-inner text-sm"></textarea>
                                         </div>
                                     </form>
                                 </div>
                                 
-                                <div className="absolute bottom-0 left-0 w-full bg-white border-t border-slate-200 p-5 shrink-0 flex flex-col sm:flex-row gap-4 z-20 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)]">
-                                    <div className="flex gap-3 w-full sm:w-auto sm:mr-auto overflow-x-auto pb-1 sm:pb-0">
-                                        <button type="button" onClick={() => copyToClipboard(generateInvoiceLink(selectedOrder.id), 'Link Invoice berhasil disalin! Silakan paste dan kirim.')} className="px-5 py-3 rounded-xl font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap text-sm">
-                                            <i className="fa-solid fa-link text-lg"></i> Copy Link Inv
+                                <div className="absolute bottom-0 left-0 w-full bg-white border-t border-slate-200 p-4 shrink-0 flex flex-col sm:flex-row gap-3 z-20 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.1)]">
+                                    <div className="flex gap-2 w-full sm:w-auto sm:mr-auto overflow-x-auto pb-1 sm:pb-0">
+                                        <button type="button" onClick={() => copyToClipboard(generateInvoiceLink(selectedOrder.id), 'Link Invoice berhasil disalin! Silakan paste dan kirim.')} className="px-4 py-3 rounded-xl font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap text-sm">
+                                            <i className="fa-solid fa-link"></i> Copy Link Inv
                                         </button>
                                         <button type="button" onClick={() => {
                                             const waInvMsg = `Halo ${selectedOrder.customer}, berikut adalah link tagihan/invoice untuk pengerjaan servis alat fitness Anda:%0A${generateInvoiceLink(selectedOrder.id)}%0A%0ATerima kasih telah menggunakan jasa Servisika!`;
                                             window.open(`https://wa.me/${getCleanPhone(selectedOrder.phone)}?text=${waInvMsg}`, '_blank');
-                                        }} className="px-5 py-3 rounded-xl font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap text-sm">
-                                            <i className="fa-brands fa-whatsapp text-xl"></i> WA Invoice
+                                        }} className="px-4 py-3 rounded-xl font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap text-sm">
+                                            <i className="fa-brands fa-whatsapp text-lg"></i> WA Invoice
                                         </button>
+                                        
+                                        {role === 'admin' && selectedOrder.technician_name !== 'Belum Ditugaskan' && (
+                                            <button type="button" onClick={() => {
+                                                const techObj = technicians.find(t => t.name === selectedOrder.technician_name);
+                                                if(techObj) window.open(`https://wa.me/${getCleanPhone(techObj.phone)}?text=${getWaTechMsg(selectedOrder)}`, '_blank');
+                                            }} className="px-4 py-3 rounded-xl font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-colors flex justify-center items-center gap-2 active:scale-95 shadow-sm whitespace-nowrap text-sm">
+                                                <i className="fa-brands fa-whatsapp text-lg"></i> WA Teknisi
+                                            </button>
+                                        )}
                                     </div>
                                     
-                                    <div className="flex flex-row gap-3 w-full sm:w-auto mt-2 sm:mt-0">
-                                        {role === 'admin' && selectedOrder.id && (
-                                            <button type="button" onClick={() => handleDeleteOrder(selectedOrder.id)} className="flex-1 sm:flex-none px-6 py-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors active:scale-95 text-sm">Hapus Order</button>
+                                    <div className="flex flex-row gap-2 w-full sm:w-auto mt-2 sm:mt-0">
+                                        {role === 'admin' && (
+                                            <button type="button" onClick={() => handleDeleteOrder(selectedOrder.id)} className="flex-1 sm:flex-none px-4 py-3 rounded-xl font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-colors active:scale-95 text-sm">Hapus Order</button>
                                         )}
-                                        <button type="submit" form="orderForm" disabled={isSaving} className="flex-[2] sm:flex-none px-8 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50 text-sm">
+                                        <button type="submit" form="orderForm" disabled={isSaving} className="flex-[2] sm:flex-none px-6 py-3 rounded-xl font-bold text-white bg-red-600 hover:bg-red-700 shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50 text-sm">
                                             {isSaving ? 'Menyimpan...' : 'Simpan Perubahan'}
                                         </button>
                                     </div>
@@ -1992,43 +2202,35 @@
 
                     {/* Modal Buat Order Baru */}
                     {showOrderModal && !selectedOrder && role === 'admin' && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm fade-in">
-                            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-full">
-                                <div className="bg-slate-50 border-b border-slate-200 p-6 flex justify-between items-center shrink-0">
-                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-3"><i className="fa-solid fa-file-circle-plus text-red-600 text-2xl"></i> Buat Order Baru</h3>
-                                    <button onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-slate-800 bg-white w-10 h-10 flex items-center justify-center rounded-full border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark text-lg"></i></button>
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200 flex flex-col max-h-full">
+                                <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center shrink-0">
+                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className="fa-solid fa-file-circle-plus text-red-600"></i> Buat Order Baru</h3>
+                                    <button onClick={() => setShowOrderModal(false)} className="text-slate-400 hover:text-slate-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
-                                <form id="createForm" onSubmit={handleCreateOrder} className="p-6 space-y-5 flex-1 overflow-y-auto bg-white">
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Tgl Penjadwalan</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50 text-base" /></div>
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Nama Klien</label><input type="text" name="customer" required placeholder="Cth: Budi / PT Maju" className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-base" /></div>
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">No. WhatsApp</label><input type="text" name="phone" required placeholder="0812..." className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-base" /></div>
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Tipe Alat & Kendala</label>
-                                        <div className="space-y-3">
-                                            <input type="text" name="unit" required placeholder="Tipe Alat (Treadmill...)" className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-base" />
-                                            <textarea name="issue" required placeholder="Detail kendala..." rows="3" className="w-full border-2 border-slate-200 p-4 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none text-base"></textarea>
+                                <form id="createOrderForm" onSubmit={handleCreateOrder} className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tgl Penjadwalan</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50 text-sm" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Klien</label><input type="text" name="customer" required placeholder="Cth: Budi / PT Maju" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-sm" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">No. WhatsApp</label><input type="text" name="phone" required placeholder="0812..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-sm" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tipe Alat & Kendala</label>
+                                        <div className="space-y-2">
+                                            <input type="text" name="unit" required placeholder="Tipe Alat (Treadmill...)" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-sm" />
+                                            <textarea name="issue" required placeholder="Detail kendala..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none text-sm"></textarea>
                                         </div>
                                     </div>
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Link Google Maps (Opsional)</label><input type="url" name="maps_link" placeholder="Share lock URL..." className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-base" /></div>
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Alamat Lokasi (Teks)</label><textarea name="address" required placeholder="Alamat lengkap..." rows="3" className="w-full border-2 border-slate-200 p-4 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none text-base"></textarea></div>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Tugaskan Teknisi</label>
-                                            <select name="technician" className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 cursor-pointer bg-slate-50 text-slate-800 text-sm">
-                                                <option value="">-- Belum Ada --</option>
-                                                {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
-                                            </select>
-                                        </div>
-                                        <div><label className="text-xs font-black text-purple-600 uppercase tracking-widest ml-1 mb-2 block">Asal Vendor</label>
-                                            <select name="vendor_name" className="w-full border-2 border-purple-200 p-4 rounded-xl font-bold outline-none focus:border-purple-500 cursor-pointer bg-purple-50 text-purple-800 text-sm">
-                                                <option value="">-- Reguler --</option>
-                                                {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
-                                            </select>
-                                        </div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Link Google Maps (Opsional)</label><input type="url" name="maps_link" placeholder="Share lock URL..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-sm" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Alamat Lokasi (Teks)</label><textarea name="address" required placeholder="Alamat lengkap..." rows="2" className="w-full border-2 border-slate-200 p-3 rounded-xl font-medium outline-none focus:border-red-500 text-slate-800 resize-none text-sm"></textarea></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tugaskan Teknisi</label>
+                                        <select name="technician" className="w-full border-2 border-slate-200 p-3.5 rounded-xl font-bold outline-none focus:border-red-500 cursor-pointer bg-slate-50 text-slate-800 text-sm">
+                                            <option value="">-- Belum Ditugaskan --</option>
+                                            {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                        </select>
                                     </div>
-                                    <div><label className="text-xs font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Estimasi Waktu Datang</label><input type="text" name="time_estimate" placeholder="Cth: 08:00 - 10:00" className="w-full border-2 border-slate-200 p-4 rounded-xl font-bold outline-none focus:border-red-500 text-blue-600 text-base" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Estimasi Waktu Datang</label><input type="text" name="time_estimate" placeholder="Cth: 08:00 - 10:00" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-800 text-sm" /></div>
                                 </form>
-                                <div className="p-5 border-t border-slate-200 bg-slate-50 shrink-0">
-                                    <button type="submit" form="createForm" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-black py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50 text-lg flex justify-center items-center gap-2">
-                                        {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Menyimpan...</> : <><i className="fa-solid fa-floppy-disk"></i> Simpan & Buat Order</>}
+                                <div className="p-5 border-t border-slate-200 shrink-0">
+                                    <button type="submit" form="createOrderForm" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50 text-sm">
+                                        {isSaving ? 'Menyimpan...' : 'Simpan & Buat Order'}
                                     </button>
                                 </div>
                             </div>
@@ -2040,16 +2242,16 @@
                         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-sm fade-in">
                             <div className="bg-white rounded-2xl w-full max-w-5xl shadow-2xl flex flex-col max-h-full overflow-hidden border border-slate-200">
                                 <div className="bg-slate-50 border-b border-slate-200 p-5 flex justify-between items-center shrink-0">
-                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-3"><i className="fa-solid fa-layer-group text-blue-600"></i> Input Jadwal Massal</h3>
-                                    <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-red-600 w-10 h-10 flex items-center justify-center rounded-full bg-white border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark text-lg"></i></button>
+                                    <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className="fa-solid fa-layer-group text-blue-600"></i> Input Jadwal Massal</h3>
+                                    <button onClick={() => setShowBulkModal(false)} className="text-slate-400 hover:text-red-600 w-8 h-8 flex items-center justify-center rounded-full bg-white border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
                                 
                                 <div className="p-6 flex-1 overflow-y-auto bg-slate-50">
                                     {bulkStep === 'input' ? (
-                                        <div className="space-y-5">
-                                            <div className="bg-blue-50 border border-blue-200 p-5 rounded-xl shadow-sm">
-                                                <p className="text-base font-bold text-blue-800 mb-2"><i className="fa-solid fa-circle-info mr-1"></i> Format Teks yang Disarankan</p>
-                                                <p className="text-sm text-blue-600 font-medium">
+                                        <div className="space-y-4">
+                                            <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl shadow-sm">
+                                                <p className="text-sm font-bold text-blue-800 mb-1"><i className="fa-solid fa-circle-info"></i> Format Teks yang Disarankan</p>
+                                                <p className="text-xs text-blue-600 font-medium">
                                                     Paste pesan chat Klien ke kotak di bawah. Pisahkan jadwal yang berbeda dengan menekan <b>Enter dua kali</b> (baris kosong).<br/>
                                                     Gunakan format penanda seperti: <b>Nama:, HP:, Tanggal:, Waktu:, Unit:, Kendala:, Alamat:, Maps:</b> agar AI lebih mudah membaca.
                                                 </p>
@@ -2058,84 +2260,85 @@
                                             <textarea 
                                                 value={bulkText} 
                                                 onChange={e => setBulkText(e.target.value)} 
-                                                className="w-full h-64 p-5 border border-slate-300 rounded-xl font-medium text-base outline-none focus:border-blue-500 shadow-inner resize-none bg-white" 
+                                                className="w-full h-64 p-5 border border-slate-300 rounded-xl font-medium text-sm outline-none focus:border-blue-500 shadow-inner resize-none bg-white" 
                                                 placeholder="Paste teks chat jadwal di sini...&#10;&#10;Contoh:&#10;Nama: Bapak Budi&#10;HP: 0812345678&#10;Tanggal: 28-08-2026&#10;Waktu: 10:00 - 12:00&#10;Unit: Treadmill Kettler&#10;Kendala: Error E02 karpet macet&#10;Alamat: Jl. Sudirman No 12&#10;Maps: https://maps.app.goo.gl/xxx"
                                             ></textarea>
                                             
                                             <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center">
-                                                <label className="flex-1 bg-white border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50 text-slate-600 p-6 rounded-xl text-center cursor-pointer transition-colors shadow-sm relative overflow-hidden group">
+                                                <label className="flex-1 bg-white border-2 border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50 text-slate-600 p-4 rounded-xl text-center cursor-pointer transition-colors shadow-sm relative overflow-hidden group">
                                                     <input type="file" accept="image/*" className="hidden" onChange={handleOCR} disabled={isProcessingOCR} />
                                                     {isProcessingOCR ? (
                                                         <div className="flex flex-col items-center justify-center">
-                                                            <i className="fa-solid fa-circle-notch fa-spin text-4xl text-blue-500 mb-3"></i>
-                                                            <p className="text-base font-black text-blue-700">Mengekstrak Teks dari Gambar...</p>
-                                                            <div className="absolute bottom-0 left-0 h-1.5 bg-blue-500 animate-pulse w-full"></div>
+                                                            <i className="fa-solid fa-circle-notch fa-spin text-3xl text-blue-500 mb-2"></i>
+                                                            <p className="text-sm font-black text-blue-700">Mengekstrak Teks dari Gambar...</p>
+                                                            <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>
                                                         </div>
                                                     ) : (
                                                         <div className="flex flex-col items-center justify-center">
-                                                            <i className="fa-solid fa-image text-5xl text-slate-300 group-hover:text-blue-500 transition-colors mb-3"></i>
-                                                            <p className="text-lg font-black text-slate-700 group-hover:text-blue-700">Upload Screenshot Teks</p>
-                                                            <p className="text-xs font-bold text-slate-400 mt-1">Sistem AI akan menyalin tulisan di dalam gambar</p>
+                                                            <i className="fa-solid fa-image text-3xl text-slate-400 group-hover:text-blue-500 transition-colors mb-2"></i>
+                                                            <p className="text-sm font-black text-slate-700 group-hover:text-blue-700">Upload Screenshot Teks</p>
+                                                            <p className="text-[10px] font-bold text-slate-400 mt-1">Sistem AI akan menyalin tulisan di dalam gambar</p>
                                                         </div>
                                                     )}
                                                 </label>
-                                                <button onClick={parseTextToOrders} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-black py-6 rounded-xl shadow-lg transition-transform active:scale-95 text-xl flex items-center justify-center gap-3">
+                                                <button onClick={parseTextToOrders} className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-black py-5 rounded-xl shadow-lg transition-transform active:scale-95 text-lg flex items-center justify-center gap-3">
                                                     <i className="fa-solid fa-wand-magic-sparkles text-yellow-400"></i> Pratinjau Teks Ini <i className="fa-solid fa-arrow-right"></i>
                                                 </button>
                                             </div>
                                         </div>
                                     ) : (
-                                        <div className="space-y-5">
-                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-5 rounded-xl border border-slate-200 shadow-sm gap-3">
-                                                <p className="font-bold text-slate-700 text-lg">Ditemukan: <span className="text-blue-600 text-2xl font-black mx-1">{parsedOrders.length}</span> Draft Jadwal</p>
-                                                <button onClick={() => setBulkStep('input')} className="text-sm font-bold text-slate-500 hover:text-slate-800 border border-slate-200 px-5 py-2.5 rounded-lg bg-slate-50 transition-colors shadow-sm active:scale-95"><i className="fa-solid fa-pen mr-2"></i> Kembali Edit Teks</button>
+                                        <div className="space-y-4">
+                                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm gap-3">
+                                                <p className="font-bold text-slate-700">Ditemukan: <span className="text-blue-600 text-xl font-black mx-1">{parsedOrders.length}</span> Draft Jadwal</p>
+                                                <button onClick={() => setBulkStep('input')} className="text-xs font-bold text-slate-500 hover:text-slate-800 border border-slate-200 px-4 py-2 rounded-lg bg-slate-50 transition-colors shadow-sm active:scale-95"><i className="fa-solid fa-pen"></i> Kembali Edit Teks</button>
                                             </div>
                                             
                                             <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-sm">
-                                                <table className="w-full text-left min-w-[1100px]">
+                                                <table className="w-full text-left min-w-[1000px]">
                                                     <thead className="bg-slate-100 text-slate-600 border-b border-slate-200">
                                                         <tr>
-                                                            <th className="p-4 font-black text-xs uppercase tracking-widest w-56">Info Klien</th>
-                                                            <th className="p-4 font-black text-xs uppercase tracking-widest w-56">Unit & Kendala</th>
-                                                            <th className="p-4 font-black text-xs uppercase tracking-widest">Alamat Lengkap & Maps</th>
-                                                            <th className="p-4 font-black text-xs uppercase tracking-widest w-56">Waktu & Vendor</th>
-                                                            <th className="p-4 font-black text-xs uppercase tracking-widest text-center w-20">Aksi</th>
+                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest w-48">Info Klien</th>
+                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest w-48">Unit & Kendala</th>
+                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest">Alamat Lengkap & Maps</th>
+                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest w-44">Waktu, Teknisi & Vendor</th>
+                                                            <th className="p-3 font-black text-[10px] uppercase tracking-widest text-center w-16">Aksi</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody className="divide-y divide-slate-100">
                                                         {parsedOrders.map((o, idx) => (
                                                             <tr key={o.id} className="hover:bg-slate-50 transition-colors">
-                                                                <td className="p-4 align-top space-y-3">
+                                                                <td className="p-3 align-top space-y-2">
                                                                     <div className="relative">
-                                                                        <i className="fa-solid fa-user absolute left-3 top-[12px] text-slate-400 text-sm"></i>
-                                                                        <input type="text" value={o.customer} onChange={(e) => { const n = [...parsedOrders]; n[idx].customer = e.target.value; setParsedOrders(n); }} placeholder="Nama Klien" className="w-full border border-slate-200 rounded-lg p-2.5 pl-9 text-sm font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
+                                                                        <i className="fa-solid fa-user absolute left-2.5 top-[9px] text-slate-400 text-xs"></i>
+                                                                        <input type="text" value={o.customer} onChange={(e) => { const n = [...parsedOrders]; n[idx].customer = e.target.value; setParsedOrders(n); }} placeholder="Nama Klien" className="w-full border border-slate-200 rounded-lg p-2 pl-7 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
                                                                     </div>
                                                                     <div className="relative">
-                                                                        <i className="fa-solid fa-phone absolute left-3 top-[12px] text-emerald-500 text-sm"></i>
-                                                                        <input type="text" value={o.phone} onChange={(e) => { const n = [...parsedOrders]; n[idx].phone = e.target.value; setParsedOrders(n); }} placeholder="No WA" className="w-full border border-slate-200 rounded-lg p-2.5 pl-9 text-sm font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
+                                                                        <i className="fa-solid fa-phone absolute left-2.5 top-[9px] text-emerald-500 text-xs"></i>
+                                                                        <input type="text" value={o.phone} onChange={(e) => { const n = [...parsedOrders]; n[idx].phone = e.target.value; setParsedOrders(n); }} placeholder="No WA" className="w-full border border-slate-200 rounded-lg p-2 pl-7 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
                                                                     </div>
                                                                 </td>
-                                                                <td className="p-4 align-top space-y-3">
-                                                                    <input type="text" value={o.unit} onChange={(e) => { const n = [...parsedOrders]; n[idx].unit = e.target.value; setParsedOrders(n); }} placeholder="Unit Alat (Contoh: Treadmill)" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
-                                                                    <input type="text" value={o.issue} onChange={(e) => { const n = [...parsedOrders]; n[idx].issue = e.target.value; setParsedOrders(n); }} placeholder="Detail Kendala" className="w-full border border-orange-200 rounded-lg p-2.5 text-sm font-bold bg-orange-50 focus:border-orange-400 outline-none text-orange-700 shadow-sm" />
+                                                                <td className="p-3 align-top space-y-2">
+                                                                    <input type="text" value={o.unit} onChange={(e) => { const n = [...parsedOrders]; n[idx].unit = e.target.value; setParsedOrders(n); }} placeholder="Unit Alat" className="w-full border border-slate-200 rounded-lg p-2 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
+                                                                    <input type="text" value={o.issue} onChange={(e) => { const n = [...parsedOrders]; n[idx].issue = e.target.value; setParsedOrders(n); }} placeholder="Detail Kendala" className="w-full border border-orange-200 rounded-lg p-2 text-xs font-bold bg-orange-50 focus:border-orange-400 outline-none text-orange-700 shadow-sm" />
                                                                 </td>
-                                                                <td className="p-4 align-top space-y-3">
-                                                                    <textarea rows="2" value={o.address} onChange={(e) => { const n = [...parsedOrders]; n[idx].address = e.target.value; setParsedOrders(n); }} placeholder="Alamat lengkap..." className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-medium bg-white focus:border-blue-400 outline-none resize-none shadow-sm h-[56px]"></textarea>
-                                                                    <div className="relative">
-                                                                        <i className="fa-solid fa-map-location-dot absolute left-3 top-[12px] text-slate-400 text-sm"></i>
-                                                                        <input type="url" value={o.maps_link || ''} onChange={(e) => { const n = [...parsedOrders]; n[idx].maps_link = e.target.value; setParsedOrders(n); }} placeholder="Link Google Maps..." className="w-full border border-slate-200 rounded-lg p-2.5 pl-9 text-sm font-medium bg-white focus:border-blue-400 outline-none shadow-sm" />
-                                                                    </div>
+                                                                <td className="p-3 align-top space-y-2">
+                                                                    <textarea rows="3" value={o.address} onChange={(e) => { const n = [...parsedOrders]; n[idx].address = e.target.value; setParsedOrders(n); }} placeholder="Alamat lengkap..." className="w-full border border-slate-200 rounded-lg p-2 text-xs font-medium bg-white focus:border-blue-400 outline-none resize-none shadow-sm h-[48px]"></textarea>
+                                                                    <input type="url" value={o.maps_link || ''} onChange={(e) => { const n = [...parsedOrders]; n[idx].maps_link = e.target.value; setParsedOrders(n); }} placeholder="Link Google Maps..." className="w-full border border-slate-200 rounded-lg p-2 text-xs font-medium bg-white focus:border-blue-400 outline-none shadow-sm" />
                                                                 </td>
-                                                                <td className="p-4 align-top space-y-3">
-                                                                    <input type="date" value={o.date} onChange={(e) => { const n = [...parsedOrders]; n[idx].date = e.target.value; setParsedOrders(n); }} className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
-                                                                    <input type="text" value={o.time_estimate} onChange={(e) => { const n = [...parsedOrders]; n[idx].time_estimate = e.target.value; setParsedOrders(n); }} placeholder="Jam: 10:00-12:00" className="w-full border border-slate-200 rounded-lg p-2.5 text-sm font-bold bg-white focus:border-blue-400 outline-none shadow-sm text-blue-600" />
-                                                                    <select value={o.vendor_name} onChange={(e) => { const n = [...parsedOrders]; n[idx].vendor_name = e.target.value; setParsedOrders(n); }} className="w-full border border-purple-200 rounded-lg p-2.5 text-xs font-bold bg-purple-50 text-purple-700 outline-none cursor-pointer shadow-sm">
+                                                                <td className="p-3 align-top space-y-2">
+                                                                    <input type="date" value={o.date} onChange={(e) => { const n = [...parsedOrders]; n[idx].date = e.target.value; setParsedOrders(n); }} className="w-full border border-slate-200 rounded-lg p-1.5 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm" />
+                                                                    <input type="text" value={o.time_estimate} onChange={(e) => { const n = [...parsedOrders]; n[idx].time_estimate = e.target.value; setParsedOrders(n); }} placeholder="Jam: 10:00-12:00" className="w-full border border-slate-200 rounded-lg p-2 text-xs font-bold bg-white focus:border-blue-400 outline-none shadow-sm text-blue-600" />
+                                                                    <select value={o.technician_name} onChange={(e) => { const n = [...parsedOrders]; n[idx].technician_name = e.target.value; setParsedOrders(n); }} className="w-full border border-slate-200 rounded-lg p-1.5 text-[10px] font-bold bg-white text-slate-700 outline-none cursor-pointer shadow-sm">
+                                                                        <option value="Belum Ditugaskan">-- Pilih Teknisi --</option>
+                                                                        {technicians.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}
+                                                                    </select>
+                                                                    <select value={o.vendor_name} onChange={(e) => { const n = [...parsedOrders]; n[idx].vendor_name = e.target.value; setParsedOrders(n); }} className="w-full border border-purple-200 rounded-lg p-1.5 text-[10px] font-bold bg-purple-50 text-purple-700 outline-none cursor-pointer shadow-sm">
                                                                         <option value="">Reguler (Bukan Vendor)</option>
                                                                         {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
                                                                     </select>
                                                                 </td>
-                                                                <td className="p-4 align-middle text-center">
-                                                                    <button onClick={() => { const n = [...parsedOrders]; n.splice(idx,1); setParsedOrders(n); }} className="text-red-500 hover:text-white bg-red-50 hover:bg-red-500 w-10 h-10 rounded-xl transition-colors shadow-sm active:scale-95"><i className="fa-solid fa-trash text-lg"></i></button>
+                                                                <td className="p-3 align-middle text-center">
+                                                                    <button onClick={() => { const n = [...parsedOrders]; n.splice(idx,1); setParsedOrders(n); }} className="text-red-500 hover:text-white bg-red-50 hover:bg-red-500 w-8 h-8 rounded-lg transition-colors shadow-sm active:scale-95"><i className="fa-solid fa-trash"></i></button>
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -2147,8 +2350,8 @@
                                 </div>
                                 
                                 {bulkStep === 'preview' && (
-                                    <div className="p-5 bg-white border-t border-slate-200 flex justify-end shrink-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-                                        <button onClick={handleSaveBulkOrders} disabled={isSaving || parsedOrders.length === 0} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-black py-4 px-10 rounded-xl shadow-lg shadow-blue-600/30 transition-transform active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 text-lg">
+                                    <div className="p-4 bg-white border-t border-slate-200 flex justify-end shrink-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
+                                        <button onClick={handleSaveBulkOrders} disabled={isSaving || parsedOrders.length === 0} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-8 rounded-xl shadow-lg shadow-blue-600/30 transition-transform active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2">
                                             {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Menyimpan Jadwal...</> : <><i className="fa-solid fa-cloud-arrow-up"></i> Simpan {parsedOrders.length} Jadwal ke Database</>}
                                         </button>
                                     </div>
@@ -2276,7 +2479,7 @@
                                             <div key={trx.id} className="p-4 sm:p-5 flex justify-between items-center hover:bg-slate-50 transition-colors group">
                                                 <div>
                                                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1"><i className="fa-regular fa-calendar mr-1"></i> {new Date(trx.date).toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</p>
-                                                    <p className="font-bold text-slate-800 text-sm sm:text-base">{trx.description}</p>
+                                                    <p className="font-bold text-slate-800 text-sm">{trx.description}</p>
                                                 </div>
                                                 <div className="flex items-center gap-4">
                                                     <div className={`font-black text-base sm:text-lg ${trx.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>
