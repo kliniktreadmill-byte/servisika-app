@@ -4,14 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Servisika Management App</title>
-    
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <style>
@@ -32,9 +30,6 @@
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-        
-        /* Smooth Horizontal Scroll for Calendar on Mobile */
         .calendar-scroll-container {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
@@ -52,9 +47,7 @@
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwdm5sd2Nqbm1maXlybGJoZ3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1ODA0ODksImV4cCI6MjEwMDE1NjQ4OX0.Y5eBJEjxfOEv0ES-LUYfY6aP7zaRIdp5L2XAzvLZLks';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        /* Helper Functions ditarik ke luar agar tidak menyebabkan error "Temporal Dead Zone" (Layar Blank) */
         const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
-        
         const parseCurrency = (val) => Number(String(val).replace(/[^0-9]/g, ''));
         const formatRupiah = (number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
         const formatNumberStr = (val) => String(val).replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -71,7 +64,6 @@
             return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
         };
 
-        // Pilihan Warna Teknisi
         const TECH_COLORS = {
             slate: { bg: 'bg-slate-50', border: 'border-slate-400', text: 'text-slate-700', hex: '#64748b' },
             red: { bg: 'bg-red-50', border: 'border-red-400', text: 'text-red-700', hex: '#ef4444' },
@@ -316,10 +308,8 @@
             const filteredTransactions = useMemo(() => {
                 return transactions.filter(trx => {
                     if (trx.is_hidden) return false; 
-                    
                     const matchSearch = trx.description.toLowerCase().includes(financeFilter.search.toLowerCase());
                     const matchType = financeFilter.type === 'Semua' || trx.type === financeFilter.type;
-                    
                     let matchStart = true;
                     let matchEnd = true;
                     if (financeFilter.startDate) {
@@ -328,7 +318,6 @@
                     if (financeFilter.endDate) {
                         matchEnd = trx.date <= financeFilter.endDate;
                     }
-                    
                     return matchSearch && matchType && matchStart && matchEnd;
                 });
             }, [transactions, financeFilter]);
@@ -813,30 +802,33 @@
                 }
             };
             
-            const handleSaveTechnician = async (e) => {
+            const handleAddTechnician = async (e) => {
                 e.preventDefault();
                 setIsSaving(true);
                 const formData = new FormData(e.target);
                 const name = formData.get('name');
                 const phone = formData.get('phone');
+                const access_code = 'TECH_' + Math.random().toString(36).substring(2, 6).toUpperCase();
 
                 try {
                     if (techFormMode === 'add') {
-                        const access_code = 'TECH_' + Math.random().toString(36).substring(2, 6).toUpperCase();
                         const { data, error } = await supabase.from('technicians').insert([{ name, phone, access_code, color: techFormColor }]).select();
                         if (error) throw error;
-                        if (data) setTechnicians([data[0], ...technicians]);
+                        if (data) {
+                            setTechnicians([data[0], ...technicians]);
+                            setShowTechModal(false);
+                        }
                     } else {
                         const { data, error } = await supabase.from('technicians').update({ name, phone, color: techFormColor }).eq('id', selectedTechToEdit.id).select();
                         if (error) throw error;
                         if (data) {
                             setTechnicians(technicians.map(t => t.id === selectedTechToEdit.id ? data[0] : t));
+                            setShowTechModal(false);
                         }
                     }
-                    setShowTechModal(false);
                 } catch (error) {
-                    console.error("Gagal simpan teknisi:", error);
-                    alert("Gagal menyimpan data. Pastikan kamu sudah menjalankan SQL untuk kolom 'color' di Supabase.");
+                    console.error("Gagal menyimpan teknisi:", error);
+                    alert("Gagal menyimpan. Pastikan kolom 'color' sudah ada di Supabase.");
                 } finally {
                     setIsSaving(false);
                 }
@@ -879,6 +871,66 @@
                     setVendors(vendors.filter(v => v.id !== id));
                     setVendorView('list');
                 }
+            };
+
+            if (isInitialLoading) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center">
+                        <i className="fa-solid fa-circle-notch fa-spin text-5xl text-red-600 mb-4 drop-shadow-md"></i>
+                        <p className="font-bold text-slate-500 animate-pulse tracking-wide uppercase text-sm">Menghubungkan Server...</p>
+                    </div>
+                );
+            }
+
+            if (publicInvoiceOrder) {
+                return (
+                    <div className="min-h-screen bg-slate-100 p-2 sm:p-8 flex items-start justify-center fade-in overflow-y-auto">
+                        <InvoiceTemplate order={publicInvoiceOrder} isStandalone={true} />
+                    </div>
+                );
+            }
+
+            if (!isLoggedIn) {
+                return (
+                    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 fade-in relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-1/2 bg-red-600 skew-y-3 origin-top-left -z-10"></div>
+                        <div className="bg-white p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 relative">
+                            <div className="text-center mb-8 pt-2">
+                                <div className="bg-red-50 w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-5 shadow-inner transform rotate-3">
+                                    <i className="fa-solid fa-wrench text-3xl text-red-600 -rotate-3"></i>
+                                </div>
+                                <h1 className="text-3xl font-black text-slate-800 tracking-tight">SERVISIKA</h1>
+                                <p className="text-slate-500 text-sm mt-1 font-medium">Portal Operasional & Lapangan</p>
+                            </div>
+                            
+                            {loginError && <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-bold text-center mb-6 border border-red-100 animate-pulse"><i className="fa-solid fa-circle-exclamation mr-1"></i> {loginError}</div>}
+                            
+                            <div className="space-y-6">
+                                <form onSubmit={handleAdminLogin} className="bg-slate-50 p-5 rounded-2xl border border-slate-200 focus-within:border-slate-400 transition-colors shadow-sm relative overflow-hidden">
+                                    <div className="absolute left-0 top-0 h-full w-1 bg-slate-400"></div>
+                                    <h3 className="text-xs font-black text-slate-600 uppercase tracking-widest mb-3 flex items-center gap-2"><i className="fa-solid fa-shield-halved"></i> Akses Admin</h3>
+                                    <div className="flex gap-2">
+                                        <input type="password" name="pin" placeholder="Masukkan PIN" required className="flex-1 p-3 rounded-xl border border-slate-300 outline-none focus:border-slate-500 text-sm font-bold text-center bg-white" />
+                                        <button type="submit" className="bg-slate-800 hover:bg-slate-900 text-white px-5 rounded-xl font-bold text-sm transition-colors shadow-md active:scale-95">Masuk</button>
+                                    </div>
+                                </form>
+
+                                <div className="relative flex items-center py-2">
+                                    <div className="flex-grow border-t border-slate-200"></div>
+                                    <span className="flex-shrink-0 mx-4 text-slate-400 text-[10px] font-black uppercase tracking-widest">Atau</span>
+                                    <div className="flex-grow border-t border-slate-200"></div>
+                                </div>
+
+                                <form onSubmit={handleTechLogin} className="bg-red-50 p-5 rounded-2xl border border-red-100 focus-within:border-red-300 transition-colors shadow-sm relative overflow-hidden">
+                                    <div className="absolute left-0 top-0 h-full w-1 bg-red-500"></div>
+                                    <h3 className="text-xs font-black text-red-700 uppercase tracking-widest mb-3 flex items-center gap-2 justify-center"><i className="fa-solid fa-helmet-safety"></i> Akses Teknisi</h3>
+                                    <input type="text" name="code" placeholder="Kode Akses (cth: tech_abc)" required className="w-full p-3 rounded-xl border border-red-200 outline-none focus:border-red-400 text-sm font-bold text-center mb-3 bg-white" />
+                                    <button type="submit" className="w-full bg-red-600 hover:bg-red-700 text-white py-3.5 rounded-xl font-bold text-sm transition-colors shadow-md active:scale-95">Buka Portal Teknisi</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                );
             }
 
             const Navigation = () => {
@@ -933,7 +985,7 @@
                                     <p className="text-[10px] text-slate-400 capitalize font-medium">{role}</p>
                                 </div>
                             </div>
-                            <button onClick={handleLogout} className="w-full text-sm bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white py-3 rounded-xl transition-colors font-bold flex justify-center items-center gap-2">
+                            <button onClick={handleLogout} className="w-full text-xs bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white py-3 rounded-xl transition-colors font-bold flex justify-center items-center gap-2">
                                 <i className="fa-solid fa-arrow-right-from-bracket"></i> Keluar Akun
                             </button>
                         </div>
@@ -1016,18 +1068,18 @@
                                         {!isBossView && <a href={`https://wa.me/${waPhone}`} target="_blank" className="text-emerald-500 hover:bg-emerald-50 p-1 rounded transition-colors" title="Chat WA"><i className="fa-brands fa-whatsapp"></i></a>}
                                     </div>
                                     {o.time_estimate && <p className="text-xs text-blue-600 font-bold mt-1 bg-blue-50 inline-block px-1.5 py-0.5 rounded"><i className="fa-regular fa-clock"></i> {o.time_estimate}</p>}
-                                    <p className="text-sm font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
+                                    <p className="text-xs font-bold text-slate-600 truncate mt-1 flex items-center gap-1"><i className="fa-solid fa-gear text-slate-400"></i> {o.unit} <span className="text-slate-300 mx-1">|</span> <span className="text-red-600 font-medium truncate">{o.issue}</span></p>
                                     <p className="text-xs font-bold text-slate-400 mt-1 flex items-center gap-1 truncate"><i className="fa-solid fa-location-dot"></i> {o.address}</p>
-                                    <p className="text-[10px] font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-0.5 rounded border border-emerald-200">
+                                    <p className="text-xs font-black text-emerald-600 mt-1.5 flex items-center gap-1 bg-emerald-50 w-fit px-2 py-0.5 rounded border border-emerald-200">
                                         <i className="fa-solid fa-rupiah-sign"></i> Potensi Tagihan: {formatRupiah(totalPemasukan)}
                                     </p>
                                 </div>
                             </div>
                             <div className="flex flex-col items-start sm:items-end gap-2 shrink-0">
-                                <span className="bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold px-2 py-1 rounded-md flex items-center gap-1">
+                                <span className="bg-slate-100 border border-slate-200 text-slate-600 text-xs font-bold px-2 py-0.5 rounded-md flex items-center gap-1">
                                     <i className="fa-solid fa-helmet-safety"></i> {o.technician_name === 'Belum Ditugaskan' ? <span className="text-red-500">Belum Ditugaskan</span> : o.technician_name}
                                 </span>
-                                <span className={`text-[10px] font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
+                                <span className={`text-xs font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
                                     o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
                                     o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
                                     o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
@@ -1271,18 +1323,18 @@
                                         </div>
                                     ))}
                                     {cells.map((date, index) => {
-                                    if (!date) return <div key={`empty-${index}`} className="bg-slate-50/50 border-r border-b border-slate-200 min-h-[100px] p-2"></div>;
-                                    
-                                    const dateStr = getLocalDateString(date);
-                                    const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
-                                        const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
-                                        const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
-                                        return timeA.localeCompare(timeB);
-                                    });
-                                    const isToday = dateStr === getLocalDateString(new Date());
+                                        if (!date) return <div key={`empty-${index}`} className="bg-slate-50/50 border-r border-b border-slate-200 min-h-[100px] p-2"></div>;
+                                        
+                                        const dateStr = getLocalDateString(date);
+                                        const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
+                                            const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
+                                            const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
+                                            return timeA.localeCompare(timeB);
+                                        });
+                                        const isToday = dateStr === getLocalDateString(new Date());
 
-                                    return (
-                                        <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[120px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
+                                        return (
+                                            <div key={dateStr} className={`bg-white border-r border-b border-slate-200 min-h-[120px] p-1.5 sm:p-2 transition-colors hover:bg-slate-50 ${isToday ? 'ring-2 ring-inset ring-red-400 bg-red-50/10' : ''}`}>
                                                 <p className={`text-right text-sm font-bold mb-1.5 ${isToday ? 'text-red-600 font-black' : 'text-slate-400'}`}>
                                                     {isToday ? <span className="bg-red-500 text-white rounded-full w-6 h-6 inline-flex items-center justify-center">{date.getDate()}</span> : date.getDate()}
                                                 </p>
@@ -2358,7 +2410,7 @@
                                 
                                 {bulkStep === 'preview' && (
                                     <div className="p-4 bg-white border-t border-slate-200 flex justify-end shrink-0 z-10 shadow-[0_-10px_15px_-3px_rgba(0,0,0,0.05)]">
-                                        <button onClick={handleSaveBulkOrders} disabled={isSaving || parsedOrders.length === 0} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-8 rounded-xl shadow-lg shadow-blue-600/30 transition-transform active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2">
+                                        <button onClick={handleSaveBulkOrders} disabled={isSaving || parsedOrders.length === 0} className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-black py-3.5 px-8 rounded-xl shadow-lg shadow-blue-600/30 transition-transform active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2 text-sm">
                                             {isSaving ? <><i className="fa-solid fa-circle-notch fa-spin"></i> Menyimpan Jadwal...</> : <><i className="fa-solid fa-cloud-arrow-up"></i> Simpan {parsedOrders.length} Jadwal ke Database</>}
                                         </button>
                                     </div>
@@ -2378,25 +2430,25 @@
                                 <form onSubmit={handleSaveVendor} className="p-6 space-y-4">
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Vendor / Perusahaan</label>
-                                        <input type="text" name="name" defaultValue={vendorFormMode === 'edit' ? selectedVendor.name : ''} required placeholder="Cth: Fitbox" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="name" defaultValue={vendorFormMode === 'edit' ? selectedVendor.name : ''} required placeholder="Cth: Fitbox" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50 text-sm" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama PIC (Penanggung Jawab)</label>
-                                        <input type="text" name="pic_name" defaultValue={vendorFormMode === 'edit' ? selectedVendor.pic_name : ''} placeholder="Cth: Pak Budi" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="pic_name" defaultValue={vendorFormMode === 'edit' ? selectedVendor.pic_name : ''} placeholder="Cth: Pak Budi" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50 text-sm" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nomor Kontak (Opsional)</label>
-                                        <input type="text" name="phone" defaultValue={vendorFormMode === 'edit' ? selectedVendor.phone : ''} placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="phone" defaultValue={vendorFormMode === 'edit' ? selectedVendor.phone : ''} placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 text-slate-700 bg-slate-50 text-sm" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Pilih Brand Tagihan</label>
-                                        <select name="brand" defaultValue={vendorFormMode === 'edit' ? selectedVendor.brand : 'Servisika'} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 bg-slate-50 cursor-pointer text-slate-700">
+                                        <select name="brand" defaultValue={vendorFormMode === 'edit' ? selectedVendor.brand : 'Servisika'} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-purple-500 bg-slate-50 cursor-pointer text-slate-700 text-sm">
                                             <option value="Servisika">Servisika (Default)</option>
                                             <option value="Harmoni Fitness">Harmoni Fitness</option>
                                         </select>
                                     </div>
                                     <div className="pt-4 border-t border-slate-100">
-                                        <button type="submit" disabled={isSaving} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-purple-600/30 transition-transform active:scale-95 disabled:opacity-50">
+                                        <button type="submit" disabled={isSaving} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-purple-600/30 transition-transform active:scale-95 disabled:opacity-50 text-sm">
                                             {isSaving ? 'Menyimpan...' : 'Simpan Vendor'}
                                         </button>
                                     </div>
@@ -2414,11 +2466,11 @@
                                     <button onClick={() => { setShowFinanceModal(false); setTrxTypeForm('in'); }} className="text-emerald-600 hover:bg-emerald-100 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-emerald-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
                                 <form onSubmit={handleAddTransaction} className="p-6 space-y-4">
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tgl Transaksi</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 text-slate-700 bg-slate-50" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Tgl Transaksi</label><input type="date" name="date" required defaultValue={new Date().toISOString().split('T')[0]} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 text-slate-700 bg-slate-50 text-sm" /></div>
                                     
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Jenis Transaksi</label>
-                                        <select name="type" value={trxTypeForm} onChange={(e) => setTrxTypeForm(e.target.value)} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                        <select name="type" value={trxTypeForm} onChange={(e) => setTrxTypeForm(e.target.value)} className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700 text-sm">
                                             <option value="in">Pemasukan (+)</option>
                                             <option value="out">Pengeluaran (-)</option>
                                             <option value="transfer">Pindah / Transfer Antar Kas</option>
@@ -2429,14 +2481,14 @@
                                         <div className="grid grid-cols-2 gap-3">
                                             <div>
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Dari Kas</label>
-                                                <select name="from_category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                                <select name="from_category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700 text-sm">
                                                     <option value="Kas Berjalan">Kas Berjalan</option>
                                                     <option value="Kas Tetap">Kas Tetap</option>
                                                 </select>
                                             </div>
                                             <div>
                                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Ke Kas</label>
-                                                <select name="to_category" defaultValue="Kas Tetap" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                                <select name="to_category" defaultValue="Kas Tetap" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700 text-sm">
                                                     <option value="Kas Berjalan">Kas Berjalan</option>
                                                     <option value="Kas Tetap">Kas Tetap</option>
                                                 </select>
@@ -2445,7 +2497,7 @@
                                     ) : (
                                         <div>
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Pilih Kas</label>
-                                            <select name="category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700">
+                                            <select name="category" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 bg-slate-50 cursor-pointer text-slate-700 text-sm">
                                                 <option value="Kas Berjalan">Kas Berjalan</option>
                                                 <option value="Kas Tetap">Kas Tetap</option>
                                             </select>
@@ -2458,9 +2510,9 @@
                                             <input type="text" name="amount" required onChange={(e) => e.target.value = formatNumberStr(e.target.value)} placeholder="0" className="w-full border-2 border-slate-200 p-4 pl-12 rounded-xl font-black text-2xl outline-none focus:border-emerald-500 text-slate-800" />
                                         </div>
                                     </div>
-                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Keterangan</label><input type="text" name="desc" required placeholder="Cth: Beli sparepart..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 text-slate-800" /></div>
+                                    <div><label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Keterangan</label><input type="text" name="desc" required placeholder="Cth: Beli sparepart..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-emerald-500 text-slate-800 text-sm" /></div>
                                     <div className="pt-2 border-t border-slate-100">
-                                        <button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50">
+                                        <button type="submit" disabled={isSaving} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-transform active:scale-95 disabled:opacity-50 text-sm">
                                             {isSaving ? 'Menyimpan...' : 'Simpan Transaksi'}
                                         </button>
                                     </div>
@@ -2511,14 +2563,14 @@
                                     <h3 className="font-black text-xl text-slate-800 flex items-center gap-2"><i className={`fa-solid ${techFormMode === 'add' ? 'fa-user-plus' : 'fa-pen'} text-red-600`}></i> {techFormMode === 'add' ? 'Tambah Teknisi' : 'Edit Teknisi'}</h3>
                                     <button onClick={() => setShowTechModal(false)} className="text-slate-400 hover:text-slate-800 bg-white p-2 w-8 h-8 flex items-center justify-center rounded-full border border-slate-200 shadow-sm"><i className="fa-solid fa-xmark"></i></button>
                                 </div>
-                                <form onSubmit={handleSaveTechnician} className="p-6 space-y-4">
+                                <form onSubmit={handleAddTechnician} className="p-6 space-y-4">
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nama Panggilan / Lengkap</label>
-                                        <input type="text" name="name" defaultValue={techFormMode === 'edit' ? selectedTechToEdit.name : ''} required placeholder="Cth: Away" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="name" defaultValue={techFormMode === 'edit' ? selectedTechToEdit?.name : ''} required placeholder="Cth: Away" className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50 text-sm" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1 block">Nomor WA Aktif</label>
-                                        <input type="text" name="phone" defaultValue={techFormMode === 'edit' ? selectedTechToEdit.phone : ''} required placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50" />
+                                        <input type="text" name="phone" defaultValue={techFormMode === 'edit' ? selectedTechToEdit?.phone : ''} required placeholder="Cth: 08123..." className="w-full border-2 border-slate-200 p-3 rounded-xl font-bold outline-none focus:border-red-500 text-slate-700 bg-slate-50 text-sm" />
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Pilih Warna Identitas Kalender</label>
@@ -2535,7 +2587,7 @@
                                         </div>
                                     </div>
                                     <div className="pt-4 border-t border-slate-100">
-                                        <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50">
+                                        <button type="submit" disabled={isSaving} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-red-600/30 transition-transform active:scale-95 disabled:opacity-50 text-sm">
                                             {isSaving ? 'Menyimpan...' : (techFormMode === 'add' ? 'Simpan & Buat Akses' : 'Simpan Perubahan')}
                                         </button>
                                     </div>
@@ -2544,7 +2596,8 @@
                         </div>
                     )}
                 </>
-            );
+                );
+            };
 
             return (
                 <div className="h-screen w-full flex overflow-hidden">
