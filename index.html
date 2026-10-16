@@ -87,10 +87,8 @@
             }
         };
 
-        // Fungsi Global untuk menarik Status Order (Lunas/Batal = Nonaktif)
+        // Fungsi Global
         const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
-        
-        // Status yang akan MERENTANG (Spanning) di Kalender dari tanggal buat sampai Hari Ini
         const isSpanningStatus = (status) => ['Pengerjaan Lanjutan', 'Pending/Tunggu Sparepart', 'Jadwal Ulang', 'Selesai (Belum Bayar)', 'Penawaran'].includes(status);
 
         const App = () => {
@@ -369,7 +367,8 @@
                 const bankAn = isHarmoni ? 'Apep Saepul Manan' : 'Saepul Anwar';
                 const ttdName = isHarmoni ? 'Admin Harmoni Fitness' : 'Admin Servisika';
                 
-                const titleColor = isPenawaran ? 'text-purple-700' : 'text-red-700';
+                // FORCE TEXT COLOR TO RED ALWAYS
+                const titleColor = 'text-red-700'; 
                 const borderBrandColor = isPenawaran ? 'border-purple-600' : 'border-red-600';
 
                 return (
@@ -423,7 +422,7 @@
                         {isPenawaran && (
                             <div className="mb-4 text-sm text-slate-600 bg-purple-50 p-4 rounded-xl border border-purple-100 leading-relaxed font-medium">
                                 <p className="font-bold text-purple-800 mb-1">Dengan hormat,</p>
-                                <p>Menindaklanjuti hasil pengecekan unit di lokasi, bersama ini kami sampaikan penawaran harga untuk kebutuhan jasa servis dan/atau pengadaan sparepart alat fitness di fasilitas Anda, dengan rincian sebagai berikut:</p>
+                                <p>Bersama surat ini kami dari Servisika mengajukan penawaran jasa/layanan/barang yang kami sediakan. Layanan ini kami tujukan untuk memenuhi kebutuhan penerima.</p>
                             </div>
                         )}
 
@@ -738,7 +737,6 @@
                         }
                     }
                     
-                    // Show success message without closing the modal
                     setSaveSuccessMsg('Tersimpan!');
                     setTimeout(() => setSaveSuccessMsg(''), 3000);
                 } catch (error) {
@@ -1047,7 +1045,6 @@
 
                 let displayOrders = orders;
 
-                // Terapkan Filter Tanggal Global ke Dashboard jika ada
                 if (financeFilter.startDate) displayOrders = displayOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) displayOrders = displayOrders.filter(o => o.date <= financeFilter.endDate);
 
@@ -1380,6 +1377,8 @@
                                             return timeA.localeCompare(timeB);
                                         });
 
+                                        const normalEvents = dayEvents.filter(o => o.date === dateStr);
+                                        const spanningEvents = dayEvents.filter(o => o.date !== dateStr);
                                         const isToday = dateStr === getLocalDateString(new Date());
 
                                         return (
@@ -1388,7 +1387,13 @@
                                                     {isToday ? <span className="bg-red-500 text-white rounded-full w-6 h-6 inline-flex items-center justify-center">{date.getDate()}</span> : date.getDate()}
                                                 </p>
                                                 <div className="space-y-1 max-h-[90px] overflow-y-auto pr-1">
-                                                    {dayEvents.map(ev => renderEventCard(ev, dateStr))}
+                                                    {spanningEvents.length > 0 && (
+                                                        <div className="mb-2 pb-1 border-b border-dashed border-slate-300">
+                                                            <p className="text-[8px] text-slate-400 uppercase tracking-widest mb-1 text-center font-bold">Tunggakan</p>
+                                                            {spanningEvents.map(ev => renderEventCard(ev, dateStr))}
+                                                        </div>
+                                                    )}
+                                                    {normalEvents.map(ev => renderEventCard(ev, dateStr))}
                                                 </div>
                                             </div>
                                         );
@@ -1424,6 +1429,8 @@
                                             return timeA.localeCompare(timeB);
                                         });
 
+                                        const normalEvents = dayEvents.filter(o => o.date === dateStr);
+                                        const spanningEvents = dayEvents.filter(o => o.date !== dateStr);
                                         const isToday = dateStr === getLocalDateString(new Date());
                                         
                                         return (
@@ -1433,8 +1440,14 @@
                                                     <p className={`text-2xl font-black ${isToday ? 'text-red-600' : 'text-slate-800'}`}>{date.getDate()}</p>
                                                     <p className="text-[10px] font-bold">{monthNames[date.getMonth()]}</p>
                                                 </div>
-                                                <div className="space-y-1">
-                                                    {dayEvents.length > 0 ? dayEvents.map(ev => renderEventCard(ev, dateStr)) : <div className="text-center text-xs text-slate-400 font-medium py-4">Kosong</div>}
+                                                <div className="space-y-2">
+                                                    {spanningEvents.length > 0 && (
+                                                        <div className="mb-3 pb-2 border-b-2 border-dashed border-slate-200">
+                                                            <p className="text-[8px] text-slate-400 uppercase tracking-widest mb-1 text-center font-bold">Tunggakan</p>
+                                                            {spanningEvents.map(ev => renderEventCard(ev, dateStr))}
+                                                        </div>
+                                                    )}
+                                                    {normalEvents.length > 0 ? normalEvents.map(ev => renderEventCard(ev, dateStr)) : (spanningEvents.length === 0 && <div className="text-center text-xs text-slate-400 font-medium py-4">Kosong</div>)}
                                                 </div>
                                             </div>
                                         );
