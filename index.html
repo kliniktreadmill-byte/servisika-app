@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     
-    <!-- Tesseract JS untuk AI OCR -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <style>
@@ -73,25 +72,11 @@
             teal: { bg: 'bg-teal-50', border: 'border-teal-400', text: 'text-teal-700', hex: '#14b8a6' },
         };
 
-        const copyToClipboard = (text, customAlert = 'Teks berhasil disalin!') => {
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(() => alert(customAlert));
-            } else {
-                const el = document.createElement('textarea');
-                el.value = text;
-                document.body.appendChild(el);
-                el.select();
-                document.execCommand('copy');
-                document.body.removeChild(el);
-                alert(customAlert);
-            }
-        };
-
-        // Fungsi Global
         const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
         const isSpanningStatus = (status) => ['Pengerjaan Lanjutan', 'Pending/Tunggu Sparepart', 'Jadwal Ulang', 'Selesai (Belum Bayar)', 'Penawaran'].includes(status);
 
         const App = () => {
+            // States untuk Otentikasi dan Tampilan Utama
             const [isInitialLoading, setIsInitialLoading] = useState(true);
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [role, setRole] = useState(null); 
@@ -104,14 +89,18 @@
             const [isBossView, setIsBossView] = useState(false);
             const [publicInvoiceOrder, setPublicInvoiceOrder] = useState(null);
 
+            // States Data Utama
             const [transactions, setTransactions] = useState([]);
             const [technicians, setTechnicians] = useState([]);
             const [vendors, setVendors] = useState([]);
             const [orders, setOrders] = useState([]);
 
+            // States Dialog Custom (Pengganti Alert/Confirm)
+            const [dialog, setDialog] = useState({ isOpen: false, type: 'alert', message: '', onConfirm: null });
+
+            // States Filter
             const [dashFilter, setDashFilter] = useState(() => localStorage.getItem('svk_dashFilter') || null); 
             const [dashTimeFilter, setDashTimeFilter] = useState(() => localStorage.getItem('svk_dashTimeFilter') || 'semua');
-            
             const [jadwalTab, setJadwalTab] = useState(() => localStorage.getItem('svk_jadwalTab') || 'aktif'); 
             const [jadwalViewLayout, setJadwalViewLayout] = useState(() => localStorage.getItem('svk_jadwalViewLayout') || 'list');
             const [jadwalViewMode, setJadwalViewMode] = useState(() => localStorage.getItem('svk_jadwalViewMode') || 'semua'); 
@@ -119,10 +108,8 @@
             const [jadwalFilterStatus, setJadwalFilterStatus] = useState(() => localStorage.getItem('svk_jadwalFilterStatus') || '');
             const [jadwalFilterVendor, setJadwalFilterVendor] = useState(() => localStorage.getItem('svk_jadwalFilterVendor') || '');
             const [jadwalSearch, setJadwalSearch] = useState(() => localStorage.getItem('svk_jadwalSearch') || '');
-            
             const [calendarViewMode, setCalendarViewMode] = useState(() => localStorage.getItem('svk_calendarViewMode') || 'month');
             const [calendarDate, setCalendarDate] = useState(new Date());
-            
             const [financeFilter, setFinanceFilter] = useState(() => {
                 const saved = localStorage.getItem('svk_financeFilter');
                 if (saved) {
@@ -136,24 +123,12 @@
                 return { search: '', type: 'Semua', startDate: '', endDate: '' };
             });
 
+            // States Modals
             const [showBulkModal, setShowBulkModal] = useState(false);
             const [bulkStep, setBulkStep] = useState('input');
             const [bulkText, setBulkText] = useState('');
             const [parsedOrders, setParsedOrders] = useState([]);
             const [isProcessingOCR, setIsProcessingOCR] = useState(false);
-
-            useEffect(() => { localStorage.setItem('svk_activeTab', activeTab); }, [activeTab]);
-            useEffect(() => { if(dashFilter) localStorage.setItem('svk_dashFilter', dashFilter); else localStorage.removeItem('svk_dashFilter'); }, [dashFilter]);
-            useEffect(() => { localStorage.setItem('svk_dashTimeFilter', dashTimeFilter); }, [dashTimeFilter]);
-            useEffect(() => { localStorage.setItem('svk_jadwalTab', jadwalTab); }, [jadwalTab]);
-            useEffect(() => { localStorage.setItem('svk_jadwalViewLayout', jadwalViewLayout); }, [jadwalViewLayout]);
-            useEffect(() => { localStorage.setItem('svk_jadwalViewMode', jadwalViewMode); }, [jadwalViewMode]);
-            useEffect(() => { localStorage.setItem('svk_jadwalFilterTech', jadwalFilterTech); }, [jadwalFilterTech]);
-            useEffect(() => { localStorage.setItem('svk_jadwalFilterStatus', jadwalFilterStatus); }, [jadwalFilterStatus]);
-            useEffect(() => { localStorage.setItem('svk_jadwalFilterVendor', jadwalFilterVendor); }, [jadwalFilterVendor]);
-            useEffect(() => { localStorage.setItem('svk_jadwalSearch', jadwalSearch); }, [jadwalSearch]);
-            useEffect(() => { localStorage.setItem('svk_financeFilter', JSON.stringify(financeFilter)); }, [financeFilter]);
-            useEffect(() => { localStorage.setItem('svk_calendarViewMode', calendarViewMode); }, [calendarViewMode]);
 
             const [showOrderModal, setShowOrderModal] = useState(false);
             const [selectedOrder, setSelectedOrder] = useState(null);
@@ -176,6 +151,36 @@
             const [vendorFormMode, setVendorFormMode] = useState('add');
             
             const [isSaving, setIsSaving] = useState(false);
+
+            useEffect(() => { localStorage.setItem('svk_activeTab', activeTab); }, [activeTab]);
+            useEffect(() => { if(dashFilter) localStorage.setItem('svk_dashFilter', dashFilter); else localStorage.removeItem('svk_dashFilter'); }, [dashFilter]);
+            useEffect(() => { localStorage.setItem('svk_dashTimeFilter', dashTimeFilter); }, [dashTimeFilter]);
+            useEffect(() => { localStorage.setItem('svk_jadwalTab', jadwalTab); }, [jadwalTab]);
+            useEffect(() => { localStorage.setItem('svk_jadwalViewLayout', jadwalViewLayout); }, [jadwalViewLayout]);
+            useEffect(() => { localStorage.setItem('svk_jadwalViewMode', jadwalViewMode); }, [jadwalViewMode]);
+            useEffect(() => { localStorage.setItem('svk_jadwalFilterTech', jadwalFilterTech); }, [jadwalFilterTech]);
+            useEffect(() => { localStorage.setItem('svk_jadwalFilterStatus', jadwalFilterStatus); }, [jadwalFilterStatus]);
+            useEffect(() => { localStorage.setItem('svk_jadwalFilterVendor', jadwalFilterVendor); }, [jadwalFilterVendor]);
+            useEffect(() => { localStorage.setItem('svk_jadwalSearch', jadwalSearch); }, [jadwalSearch]);
+            useEffect(() => { localStorage.setItem('svk_financeFilter', JSON.stringify(financeFilter)); }, [financeFilter]);
+            useEffect(() => { localStorage.setItem('svk_calendarViewMode', calendarViewMode); }, [calendarViewMode]);
+
+            const showAlert = (message) => setDialog({ isOpen: true, type: 'alert', message, onConfirm: null });
+            const showConfirm = (message, onConfirm) => setDialog({ isOpen: true, type: 'confirm', message, onConfirm });
+
+            const copyToClipboard = (text, customAlert = 'Teks berhasil disalin!') => {
+                if (navigator.clipboard && window.isSecureContext) {
+                    navigator.clipboard.writeText(text).then(() => showAlert(customAlert));
+                } else {
+                    const el = document.createElement('textarea');
+                    el.value = text;
+                    document.body.appendChild(el);
+                    el.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(el);
+                    showAlert(customAlert);
+                }
+            };
 
             useEffect(() => {
                 const initApp = async () => {
@@ -204,7 +209,8 @@
                                 if(foundOrder) {
                                     setPublicInvoiceOrder(foundOrder);
                                     const safeAddress = foundOrder.address ? foundOrder.address.substring(0, 35) + '...' : '';
-                                    document.title = (foundOrder.status === 'Penawaran' ? "Penawaran Harga - Kpd yth. " : "Invoice - Kpd yth. ") + foundOrder.customer + " - " + safeAddress.replace(/[\n\r]/g, ' ');
+                                    const isPenawaranLuar = foundOrder.status === 'Penawaran';
+                                    document.title = (isPenawaranLuar ? "Penawaran Harga - Kpd yth. " : "Invoice - Kpd yth. ") + foundOrder.customer + " - " + safeAddress.replace(/[\n\r]/g, ' ');
                                 }
                             }
                             setIsInitialLoading(false);
@@ -265,14 +271,14 @@
             };
 
             const handleLogout = () => {
-                if(window.confirm('Yakin ingin keluar dari portal?')) {
+                showConfirm('Yakin ingin keluar dari portal?', () => {
                     setIsLoggedIn(false);
                     setRole(null);
                     setCurrentUser(null);
                     setActiveTab('dashboard');
                     localStorage.removeItem('svk_role');
                     localStorage.removeItem('svk_user');
-                }
+                });
             };
 
             const handleAdminLogin = (e) => {
@@ -325,7 +331,7 @@
                 });
             }, [transactions, financeFilter]);
 
-            // Memoized sorted orders for Previous/Next navigation
+            // Array jadwal yang difilter khusus untuk navigasi Next/Prev di Form Edit
             const sortedContextOrders = useMemo(() => {
                 let list = orders.filter(o => jadwalTab === 'aktif' ? (isOrderActive(o.status) || o.status.includes('Komplain')) : (['Lunas', 'Batal'].includes(o.status) && !o.status.includes('Komplain')));
                 list.sort((a, b) => {
@@ -367,9 +373,8 @@
                 const bankAn = isHarmoni ? 'Apep Saepul Manan' : 'Saepul Anwar';
                 const ttdName = isHarmoni ? 'Admin Harmoni Fitness' : 'Admin Servisika';
                 
-                // FORCE TEXT COLOR TO RED ALWAYS
                 const titleColor = 'text-red-700'; 
-                const borderBrandColor = isPenawaran ? 'border-purple-600' : 'border-red-600';
+                const borderBrandColor = 'border-red-600';
 
                 return (
                     <div className="w-full overflow-x-auto pb-4">
@@ -377,7 +382,7 @@
                         <div className={`flex flex-row justify-between border-b-2 ${borderBrandColor} pb-6 mb-8 gap-4`}>
                             <div>
                                 {isHarmoni ? (
-                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-20 object-contain object-left mb-1" />
+                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" crossOrigin="anonymous" className="h-20 object-contain object-left mb-1" />
                                 ) : (
                                     <h1 className={`text-4xl font-black ${titleColor} m-0 tracking-tighter uppercase`}>SERVISIKA</h1>
                                 )}
@@ -415,13 +420,13 @@
                                 <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Detail Pengerjaan:</p>
                                 <p className="font-bold text-slate-800 text-base">{order.unit}</p>
                                 <p className="text-slate-600 mt-1 text-xs">Teknisi: <span className="font-bold">{order.technician_name}</span></p>
-                                <p className="text-slate-600 mt-1 text-xs">Status: <span className={`font-bold uppercase ${isPenawaran ? 'text-purple-600' : 'text-red-600'}`}>{order.status}</span></p>
+                                <p className="text-slate-600 mt-1 text-xs">Status: <span className="font-bold uppercase text-red-600">{order.status}</span></p>
                             </div>
                         </div>
 
                         {isPenawaran && (
-                            <div className="mb-4 text-sm text-slate-600 bg-purple-50 p-4 rounded-xl border border-purple-100 leading-relaxed font-medium">
-                                <p className="font-bold text-purple-800 mb-1">Dengan hormat,</p>
+                            <div className="mb-8 text-sm text-slate-600 bg-slate-50 p-5 rounded-xl border border-slate-200 leading-relaxed font-medium">
+                                <p className="font-bold text-slate-800 mb-1">Dengan hormat,</p>
                                 <p>Bersama surat ini kami dari Servisika mengajukan penawaran jasa/layanan/barang yang kami sediakan. Layanan ini kami tujukan untuk memenuhi kebutuhan penerima.</p>
                             </div>
                         )}
@@ -465,11 +470,11 @@
                                 <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">{isPenawaran ? 'Informasi Persetujuan' : 'Informasi Pembayaran'}</p>
                                 
                                 {isPenawaran ? (
-                                    <p className="text-sm text-slate-600 leading-relaxed font-medium">Mohon konfirmasi persetujuan penawaran ini agar jadwal pengerjaan dapat segera diproses. Pembayaran DP (Down Payment) mungkin diperlukan untuk pemesanan sparepart.</p>
+                                    <p className="text-sm text-slate-600 leading-relaxed font-medium mb-4">Mohon konfirmasi persetujuan penawaran ini agar jadwal pengerjaan dapat segera diproses. Pembayaran DP (Down Payment) mungkin diperlukan untuk pemesanan sparepart.</p>
                                 ) : (
                                     <>
                                         <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
-                                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3">
+                                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3 mb-4">
                                             <div>
                                                 <p className="font-black text-blue-800 text-xl tracking-wider mb-0.5">{bankRek} <span className="text-sm text-blue-600 font-bold">(BCA)</span></p>
                                                 <p className="text-sm font-bold text-slate-600">A.n: {bankAn}</p>
@@ -482,6 +487,11 @@
                                         </div>
                                     </>
                                 )}
+                                
+                                <div className="bg-slate-50 border border-slate-200 p-3.5 rounded-xl">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1"><i className="fa-solid fa-shield-halved mr-1"></i> Kebijakan Garansi</p>
+                                    <p className="text-xs text-slate-600 font-medium leading-relaxed">Garansi hanya berlaku untuk jenis kerusakan atau penggantian suku cadang yang sama. Tidak akan dikenakan biaya layanan/perbaikan selama masih dalam masa garansi.</p>
+                                </div>
                             </div>
                             
                             <div className="flex-1 flex justify-end pt-2 mt-4">
@@ -524,7 +534,7 @@
                     await worker.terminate();
                 } catch (err) {
                     console.error(err);
-                    alert("Gagal mengekstrak teks dari gambar. Gunakan fitur copy-paste manual.");
+                    showAlert("Gagal mengekstrak teks dari gambar. Gunakan fitur copy-paste manual.");
                 } finally {
                     setIsProcessingOCR(false);
                     e.target.value = null;
@@ -541,7 +551,7 @@
                         for (let kw of keywords) {
                             const regex = new RegExp(`^\\s*${kw}\\s*[:\\-]\\s*(.+)`, 'i');
                             const match = line.match(regex);
-                            if (match) return match[1].trim();
+                            if (match) return match[1].trim(); 
                             
                             if (lowerLine.startsWith(kw.toLowerCase())) {
                                 const idx = lowerLine.indexOf(':') > -1 ? lowerLine.indexOf(':') : lowerLine.indexOf('-');
@@ -597,7 +607,6 @@
                             address = address.replace(urls[0], '').trim();
                         }
                     }
-                    
                     if(!address && mapsLink) address = "Lihat Link Maps";
 
                     let order = { 
@@ -620,7 +629,7 @@
                 });
 
                 if (newOrders.length === 0) {
-                    alert("Tidak dapat menemukan pola data yang valid. Pastikan format teks berisi Nama, Unit, dll.");
+                    showAlert("Tidak dapat menemukan pola data yang valid. Pastikan format teks berisi Nama, Unit, dll.");
                     return;
                 }
 
@@ -668,10 +677,10 @@
                     setParsedOrders([]);
                     setBulkText('');
                     setBulkStep('input');
-                    alert(`Berhasil menyimpan ${parsedOrders.length} Jadwal Orderan!`);
+                    showAlert(`Berhasil menyimpan ${parsedOrders.length} Jadwal Orderan!`);
                 } catch (error) {
                     console.error("Gagal simpan massal:", error);
-                    alert("Gagal menyimpan data massal ke database.");
+                    showAlert("Gagal menyimpan data massal ke database.");
                 } finally {
                     setIsSaving(false);
                 }
@@ -741,18 +750,18 @@
                     setTimeout(() => setSaveSuccessMsg(''), 3000);
                 } catch (error) {
                     console.error("Gagal simpan:", error);
-                    alert('Gagal menyimpan data ke database. Cek console log.');
+                    showAlert('Gagal menyimpan data ke database. Cek console log.');
                 } finally {
                     setIsSaving(false);
                 }
             };
             
             const handleDeleteOrder = async (id) => {
-                if(window.confirm('YAKIN INGIN MENGHAPUS ORDER INI?\n\nData dan Invoice di dalamnya akan terhapus permanen dari server.')) {
+                showConfirm('YAKIN INGIN MENGHAPUS ORDER INI?\n\nData dan Invoice di dalamnya akan terhapus permanen dari server.', async () => {
                     await supabase.from('orders').delete().eq('id', id);
                     setOrders(orders.filter(o => o.id !== id));
                     setShowOrderModal(false);
-                }
+                });
             };
 
             const handleCreateOrder = async (e) => {
@@ -798,7 +807,7 @@
                         const fromCat = formData.get('from_category');
                         const toCat = formData.get('to_category');
                         if (fromCat === toCat) {
-                            alert("Kategori kas asal dan tujuan tidak boleh sama!");
+                            showAlert("Kategori kas asal dan tujuan tidak boleh sama!");
                             setIsSaving(false);
                             return;
                         }
@@ -824,10 +833,10 @@
             };
 
             const handleDeleteTransaction = async (id) => {
-                if(window.confirm('Yakin ingin menghapus mutasi ini? Saldo akan disesuaikan otomatis.')) {
+                showConfirm('Yakin ingin menghapus mutasi ini? Saldo akan disesuaikan otomatis.', async () => {
                     await supabase.from('transactions').delete().eq('id', id);
                     setTransactions(transactions.filter(t => t.id !== id));
-                }
+                });
             };
             
             const handleAddTechnician = async (e) => {
@@ -856,7 +865,7 @@
                     }
                 } catch (error) {
                     console.error("Gagal menyimpan teknisi:", error);
-                    alert("Gagal menyimpan. Pastikan kolom 'color' sudah ada di Supabase.");
+                    showAlert("Gagal menyimpan. Pastikan kolom 'color' sudah ada di Supabase.");
                 } finally {
                     setIsSaving(false);
                 }
@@ -887,19 +896,19 @@
                     setShowVendorModal(false);
                 } catch (error) {
                     console.error("Gagal simpan vendor:", error);
-                    alert("Gagal menyimpan vendor. Cek koneksi & tabel database.");
+                    showAlert("Gagal menyimpan vendor. Cek koneksi & tabel database.");
                 } finally {
                     setIsSaving(false);
                 }
             };
 
             const handleDeleteVendor = async (id, name) => {
-                if(window.confirm(`Yakin hapus Vendor ${name}? Orderan yang sudah ada tidak akan hilang, tapi tagihan nama vendor di invoice akan kosong.`)) {
+                showConfirm(`Yakin hapus Vendor ${name}? Orderan yang sudah ada tidak akan hilang, tapi tagihan nama vendor di invoice akan kosong.`, async () => {
                     await supabase.from('vendors').delete().eq('id', id);
                     setVendors(vendors.filter(v => v.id !== id));
                     setVendorView('list');
-                }
-            };
+                });
+            }
 
             if (isInitialLoading) {
                 return (
@@ -1044,7 +1053,7 @@
                 const lastDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth() + 1, 0);
 
                 let displayOrders = orders;
-
+                
                 if (financeFilter.startDate) displayOrders = displayOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) displayOrders = displayOrders.filter(o => o.date <= financeFilter.endDate);
 
@@ -1900,11 +1909,11 @@
                                         </div>
                                         <div className="flex items-center">
                                             <button onClick={() => { setSelectedTechToEdit(tech); setTechFormMode('edit'); setTechFormColor(tech.color || 'slate'); setShowTechModal(true); }} className="text-slate-400 hover:text-blue-600 p-2 hover:bg-blue-50 rounded-lg transition-colors"><i className="fa-solid fa-pen"></i></button>
-                                            <button onClick={async () => {
-                                                if(window.confirm(`Yakin hapus teknisi ${tech.name}? Akses loginnya akan hangus.`)) {
+                                            <button onClick={() => {
+                                                showConfirm(`Yakin hapus teknisi ${tech.name}? Akses loginnya akan hangus.`, async () => {
                                                     await supabase.from('technicians').delete().eq('id', tech.id);
                                                     setTechnicians(technicians.filter(t => t.id !== tech.id));
-                                                }
+                                                });
                                             }} className="text-slate-400 hover:text-red-600 p-2 hover:bg-red-50 rounded-lg transition-colors"><i className="fa-solid fa-trash"></i></button>
                                         </div>
                                     </div>
@@ -2106,6 +2115,32 @@
 
                 return (
                 <>
+                    {/* Pop-up Dialog Custom (Pengganti Alert) */}
+                    {dialog.isOpen && (
+                        <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm fade-in">
+                            <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden border border-slate-200 text-center">
+                                <div className="p-6">
+                                    <div className={`mx-auto w-14 h-14 rounded-full flex items-center justify-center mb-4 ${dialog.type === 'confirm' ? 'bg-orange-100 text-orange-600' : 'bg-blue-100 text-blue-600'}`}>
+                                        <i className={`fa-solid ${dialog.type === 'confirm' ? 'fa-triangle-exclamation' : 'fa-circle-info'} text-3xl`}></i>
+                                    </div>
+                                    <h3 className="font-black text-xl text-slate-800 mb-2">{dialog.type === 'confirm' ? 'Konfirmasi' : 'Informasi'}</h3>
+                                    <p className="text-sm text-slate-600 font-medium whitespace-pre-wrap">{dialog.message}</p>
+                                </div>
+                                <div className="p-4 bg-slate-50 border-t border-slate-100 flex gap-3">
+                                    {dialog.type === 'confirm' && (
+                                        <button onClick={() => setDialog({ ...dialog, isOpen: false })} className="flex-1 bg-white border border-slate-200 text-slate-600 font-bold py-3 rounded-xl hover:bg-slate-100 transition-colors">Batal</button>
+                                    )}
+                                    <button onClick={() => { 
+                                        if (dialog.type === 'confirm' && dialog.onConfirm) dialog.onConfirm(); 
+                                        setDialog({ ...dialog, isOpen: false }); 
+                                    }} className={`flex-1 font-bold py-3 rounded-xl text-white transition-colors ${dialog.type === 'confirm' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                                        {dialog.type === 'confirm' ? 'Ya, Lanjutkan' : 'Mengerti'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Quick View Calendar Detail Modal */}
                     {quickViewOrder && (
                         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm fade-in" onClick={() => setQuickViewOrder(null)}>
