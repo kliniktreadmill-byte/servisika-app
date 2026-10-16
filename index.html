@@ -4,12 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Servisika Management App</title>
+    
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <!-- Tesseract JS untuk AI OCR -->
     <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
     
     <style>
@@ -30,11 +33,7 @@
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
         
-        .calendar-scroll-container {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-            padding-bottom: 10px;
-        }
+        .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     </style>
 </head>
 <body class="text-slate-800 selection:bg-red-200 selection:text-red-900">
@@ -47,10 +46,9 @@
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwdm5sd2Nqbm1maXlybGJoZ3ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ1ODA0ODksImV4cCI6MjEwMDE1NjQ4OX0.Y5eBJEjxfOEv0ES-LUYfY6aP7zaRIdp5L2XAzvLZLks';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-        const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
-        const parseCurrency = (val) => Number(String(val).replace(/[^0-9]/g, ''));
+        const parseCurrency = (val) => Number(val.toString().replace(/[^0-9]/g, ''));
         const formatRupiah = (number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(number || 0);
-        const formatNumberStr = (val) => String(val).replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        const formatNumberStr = (val) => val.toString().replace(/[^0-9]/g, '').replace(/\B(?=(\d{3})+(?!\d))/g, ".");
         
         const getCleanPhone = (phone) => {
             let cleanPhone = (phone || '').replace(/[\D\s-]/g, ''); 
@@ -88,6 +86,12 @@
                 alert(customAlert);
             }
         };
+
+        // Fungsi Global untuk menarik Status Order (Lunas/Batal = Nonaktif)
+        const isOrderActive = (status) => !['Lunas', 'Batal'].includes(status);
+        
+        // Status yang akan MERENTANG (Spanning) di Kalender dari tanggal buat sampai Hari Ini
+        const isSpanningStatus = (status) => ['Pengerjaan Lanjutan', 'Pending/Tunggu Sparepart', 'Jadwal Ulang', 'Selesai (Belum Bayar)', 'Penawaran'].includes(status);
 
         const App = () => {
             const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -157,7 +161,7 @@
             const [selectedOrder, setSelectedOrder] = useState(null);
             const [quickViewOrder, setQuickViewOrder] = useState(null);
             const [modalParts, setModalParts] = useState([]); 
-            const [saveSuccessMsg, setSaveSuccessMsg] = useState(''); // New state for non-closing save
+            const [saveSuccessMsg, setSaveSuccessMsg] = useState(''); 
             
             const [showFinanceModal, setShowFinanceModal] = useState(false);
             const [trxTypeForm, setTrxTypeForm] = useState('in'); 
@@ -202,7 +206,7 @@
                                 if(foundOrder) {
                                     setPublicInvoiceOrder(foundOrder);
                                     const safeAddress = foundOrder.address ? foundOrder.address.substring(0, 35) + '...' : '';
-                                    document.title = "Invoice - Kpd yth. " + foundOrder.customer + " - " + safeAddress.replace(/[\n\r]/g, ' ');
+                                    document.title = (foundOrder.status === 'Penawaran' ? "Penawaran Harga - Kpd yth. " : "Invoice - Kpd yth. ") + foundOrder.customer + " - " + safeAddress.replace(/[\n\r]/g, ' ');
                                 }
                             }
                             setIsInitialLoading(false);
@@ -349,7 +353,7 @@
                 const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
                 const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
                 const invoiceLink = generateInvoiceLink(o.id);
-                return `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0A*📄 Link Invoice Klien:*%0A${invoiceLink}%0A%0ACek progress dan laporkan hasil pengerjaan di portal teknisi kamu ya:%0A${magicLink}`;
+                return `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0A*📄 Link Lampiran Invoice / Penawaran:*%0A${invoiceLink}%0A%0ACek progress lengkapnya di portal teknisi kamu ya:%0A${magicLink}`;
             };
 
             const InvoiceTemplate = ({ order, isStandalone = false }) => {
@@ -358,14 +362,15 @@
                 
                 const orderVendor = order.vendor_name ? vendors.find(v => v.name === order.vendor_name) : null;
                 const isHarmoni = orderVendor?.brand === 'Harmoni Fitness';
+                const isPenawaran = order.status === 'Penawaran';
 
                 const brandSub = isHarmoni ? 'Layanan Servis & Maintenance Fitness' : 'Layanan Servis Alat Fitness Profesional';
                 const bankRek = isHarmoni ? '2752042277' : '638-042-8651';
                 const bankAn = isHarmoni ? 'Apep Saepul Manan' : 'Saepul Anwar';
                 const ttdName = isHarmoni ? 'Admin Harmoni Fitness' : 'Admin Servisika';
                 
-                const titleColor = 'text-red-700';
-                const borderBrandColor = 'border-red-600';
+                const titleColor = isPenawaran ? 'text-purple-700' : 'text-red-700';
+                const borderBrandColor = isPenawaran ? 'border-purple-600' : 'border-red-600';
 
                 return (
                     <div className="w-full overflow-x-auto pb-4">
@@ -373,14 +378,14 @@
                         <div className={`flex flex-row justify-between border-b-2 ${borderBrandColor} pb-6 mb-8 gap-4`}>
                             <div>
                                 {isHarmoni ? (
-                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-16 object-contain object-left mb-1" />
+                                    <img src="https://i.imghippo.com/files/fBA2845ClI.png" alt="Harmoni Fitness Logo" className="h-20 object-contain object-left mb-1" />
                                 ) : (
                                     <h1 className={`text-4xl font-black ${titleColor} m-0 tracking-tighter uppercase`}>SERVISIKA</h1>
                                 )}
                                 <p className="text-slate-500 text-sm mt-1 font-medium">{brandSub}</p>
                             </div>
                             <div className="text-right">
-                                <h2 className="text-2xl font-black text-slate-800 m-0 tracking-tight">INVOICE / TAGIHAN</h2>
+                                <h2 className="text-2xl font-black text-slate-800 m-0 tracking-tight">{isPenawaran ? 'PENAWARAN HARGA' : 'INVOICE / TAGIHAN'}</h2>
                                 <p className="text-sm font-bold mt-2">No: <span className="text-slate-600 font-medium">{order.order_id_text}</span></p>
                                 <p className="text-sm font-bold">Tanggal: <span className="text-slate-600 font-medium">{new Date().toLocaleDateString('id-ID', {day:'numeric', month:'long', year:'numeric'})}</span></p>
                             </div>
@@ -388,7 +393,7 @@
                         
                         <div className="flex flex-row justify-between mb-8 text-sm gap-6">
                             <div className="flex-1 bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Klien (Ditagihkan Kepada):</p>
+                                <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">{isPenawaran ? 'Penawaran Kepada:' : 'Klien (Ditagihkan Kepada):'}</p>
                                 
                                 {orderVendor ? (
                                     <>
@@ -411,9 +416,16 @@
                                 <p className="font-black text-slate-400 uppercase tracking-wider text-[10px] mb-2">Detail Pengerjaan:</p>
                                 <p className="font-bold text-slate-800 text-base">{order.unit}</p>
                                 <p className="text-slate-600 mt-1 text-xs">Teknisi: <span className="font-bold">{order.technician_name}</span></p>
-                                <p className="text-slate-600 mt-1 text-xs">Status: <span className="font-bold uppercase text-red-600">{order.status}</span></p>
+                                <p className="text-slate-600 mt-1 text-xs">Status: <span className={`font-bold uppercase ${isPenawaran ? 'text-purple-600' : 'text-red-600'}`}>{order.status}</span></p>
                             </div>
                         </div>
+
+                        {isPenawaran && (
+                            <div className="mb-4 text-sm text-slate-600 bg-purple-50 p-4 rounded-xl border border-purple-100 leading-relaxed font-medium">
+                                <p className="font-bold text-purple-800 mb-1">Dengan hormat,</p>
+                                <p>Menindaklanjuti hasil pengecekan unit di lokasi, bersama ini kami sampaikan penawaran harga untuk kebutuhan jasa servis dan/atau pengadaan sparepart alat fitness di fasilitas Anda, dengan rincian sebagai berikut:</p>
+                            </div>
+                        )}
 
                         <div className="rounded-xl overflow-hidden border border-slate-200 mb-8 w-full">
                             <table className="w-full text-left text-sm">
@@ -442,7 +454,7 @@
                                         </tr>
                                     ))}
                                     <tr className="bg-slate-800 text-white">
-                                        <td colSpan="2" className="p-5 text-right font-black uppercase tracking-wider text-sm">TOTAL TAGIHAN:</td>
+                                        <td colSpan="2" className="p-5 text-right font-black uppercase tracking-wider text-sm">{isPenawaran ? 'TOTAL PENAWARAN BIAYA:' : 'TOTAL TAGIHAN:'}</td>
                                         <td className="p-5 text-right font-black text-xl whitespace-nowrap">{formatRupiah(total)}</td>
                                     </tr>
                                 </tbody>
@@ -451,19 +463,26 @@
 
                         <div className="flex flex-row justify-between gap-8 mt-4">
                             <div className="flex-1 relative">
-                                <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">Informasi Pembayaran</p>
-                                <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
-                                <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3">
-                                    <div>
-                                        <p className="font-black text-blue-800 text-xl tracking-wider mb-0.5">{bankRek} <span className="text-sm text-blue-600 font-bold">(BCA)</span></p>
-                                        <p className="text-sm font-bold text-slate-600">A.n: {bankAn}</p>
-                                    </div>
-                                    {isStandalone && (
-                                        <button onClick={() => copyToClipboard(bankRek.replace(/\D/g,''), 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
-                                            <i className="fa-regular fa-copy"></i> Salin Rekening
-                                        </button>
-                                    )}
-                                </div>
+                                <p className="font-black text-xs text-slate-400 uppercase tracking-wider mb-2">{isPenawaran ? 'Informasi Persetujuan' : 'Informasi Pembayaran'}</p>
+                                
+                                {isPenawaran ? (
+                                    <p className="text-sm text-slate-600 leading-relaxed font-medium">Mohon konfirmasi persetujuan penawaran ini agar jadwal pengerjaan dapat segera diproses. Pembayaran DP (Down Payment) mungkin diperlukan untuk pemesanan sparepart.</p>
+                                ) : (
+                                    <>
+                                        <p className="text-sm font-medium mb-2 text-slate-600">Metode: <span className="font-bold text-slate-800">Transfer / Cash</span></p>
+                                        <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl mt-2 flex flex-col items-start gap-3">
+                                            <div>
+                                                <p className="font-black text-blue-800 text-xl tracking-wider mb-0.5">{bankRek} <span className="text-sm text-blue-600 font-bold">(BCA)</span></p>
+                                                <p className="text-sm font-bold text-slate-600">A.n: {bankAn}</p>
+                                            </div>
+                                            {isStandalone && (
+                                                <button onClick={() => copyToClipboard(bankRek.replace(/\D/g,''), 'Nomor Rekening BCA berhasil disalin!')} className="bg-white hover:bg-blue-100 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm active:scale-95">
+                                                    <i className="fa-regular fa-copy"></i> Salin Rekening
+                                                </button>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
                             </div>
                             
                             <div className="flex-1 flex justify-end pt-2 mt-4">
@@ -487,7 +506,7 @@
                                 <button onClick={() => window.print()} className="bg-red-600 hover:bg-red-700 text-white px-8 py-3.5 rounded-xl font-bold shadow-xl shadow-red-600/20 transition-transform active:scale-95 flex items-center justify-center gap-2 mx-auto w-auto">
                                     <i className="fa-solid fa-print"></i> Cetak / Simpan PDF
                                 </button>
-                                <p className="text-xs text-slate-400 mt-4 font-medium max-w-sm mx-auto">Gunakan fitur Print browser Anda dan pilih "Save as PDF" (Simpan sebagai PDF) untuk menyimpan tagihan.</p>
+                                <p className="text-xs text-slate-400 mt-4 font-medium max-w-sm mx-auto">Gunakan fitur Print browser Anda dan pilih "Save as PDF" (Simpan sebagai PDF) untuk menyimpan dokumen.</p>
                             </div>
                         )}
                     </div>
@@ -720,7 +739,7 @@
                     }
                     
                     // Show success message without closing the modal
-                    setSaveSuccessMsg('Perubahan berhasil disimpan!');
+                    setSaveSuccessMsg('Tersimpan!');
                     setTimeout(() => setSaveSuccessMsg(''), 3000);
                 } catch (error) {
                     console.error("Gagal simpan:", error);
@@ -1027,11 +1046,8 @@
                 const lastDayOfMonth = new Date(todayDateObj.getFullYear(), todayDateObj.getMonth() + 1, 0);
 
                 let displayOrders = orders;
-                
-                if (dashFilter === 'aktif') displayOrders = orders.filter(o => isOrderActive(o.status));
-                else if (dashFilter === 'selesai') displayOrders = orders.filter(o => o.status === 'Lunas');
-                else if (dashFilter === 'pending') displayOrders = orders.filter(o => o.status.includes('Pending') || o.status.includes('Ulang') || o.status.includes('Komplain'));
 
+                // Terapkan Filter Tanggal Global ke Dashboard jika ada
                 if (financeFilter.startDate) displayOrders = displayOrders.filter(o => o.date >= financeFilter.startDate);
                 if (financeFilter.endDate) displayOrders = displayOrders.filter(o => o.date <= financeFilter.endDate);
 
@@ -1092,6 +1108,7 @@
                                 </span>
                                 <span className={`text-xs font-bold px-2 py-1.5 rounded uppercase tracking-wider border whitespace-nowrap shadow-sm ${
                                     o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                    o.status.includes('Penawaran') ? 'bg-purple-50 text-purple-700 border-purple-200' :
                                     o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
                                     o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
                                     o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
@@ -1214,7 +1231,7 @@
                 if (isPublicSchedule) {
                     filteredOrders = filteredOrders.filter(o => isOrderActive(o.status) || o.status.includes('Komplain'));
                 } else {
-                    const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang'].some(s => jadwalFilterStatus.includes(s));
+                    const bypassDateFilter = ['Komplain', 'Pengerjaan Lanjutan', 'Jadwal Ulang', 'Penawaran', 'Pending/Tunggu Sparepart', 'Selesai (Belum Bayar)'].some(s => jadwalFilterStatus.includes(s));
                     
                     if (!bypassDateFilter && jadwalViewLayout === 'list') {
                         if (financeFilter.startDate) filteredOrders = filteredOrders.filter(o => o.date >= financeFilter.startDate);
@@ -1301,16 +1318,22 @@
                     const dayNames = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
                     const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
 
-                    const renderEventCard = (o) => {
+                    const renderEventCard = (o, dateStr) => {
                         const techObj = technicians.find(t => t.name === o.technician_name);
                         const colorData = TECH_COLORS[techObj?.color] || TECH_COLORS.slate;
                         
+                        const isSpanning = o.date !== dateStr;
+                        const cardClasses = `p-1.5 mb-1 text-[10px] font-bold ${isPublicSchedule ? 'cursor-pointer' : 'cursor-pointer'} transition-colors shadow-sm leading-tight ${colorData.bg} ${colorData.text} ${isSpanning ? `opacity-80 border-y ${colorData.border} border-r rounded-r border-dashed border-l-[3px] border-l-transparent` : `border-l-4 rounded ${colorData.border}`}`;
+                        
                         return (
-                            <div key={o.id} onClick={() => handleEventClick(o)} 
-                                 className={`p-1.5 mb-1 rounded border-l-4 text-[10px] font-bold cursor-pointer transition-colors shadow-sm leading-tight ${colorData.bg} ${colorData.border} ${colorData.text}`}
+                            <div key={o.id + dateStr} onClick={(e) => { e.stopPropagation(); handleEventClick(o); }} 
+                                 className={cardClasses}
                                  title={`${o.customer} - ${o.unit} \n${o.address}`}>
-                                <div className="truncate">{o.customer.split(' ')[0]} • {getShortLocation(o.address)}</div>
-                                {o.time_estimate && <div className="text-[9px] font-medium opacity-80 mt-0.5"><i className="fa-regular fa-clock"></i> {o.time_estimate}</div>}
+                                <div className="truncate flex items-center gap-1">
+                                    {isSpanning && <i className="fa-solid fa-arrow-turn-up text-[8px] opacity-50 rotate-90"></i>}
+                                    {o.customer.split(' ')[0]} • {getShortLocation(o.address)}
+                                </div>
+                                {o.time_estimate && !isSpanning && <div className="text-[9px] font-medium opacity-80 mt-0.5"><i className="fa-regular fa-clock"></i> {o.time_estimate}</div>}
                             </div>
                         );
                     };
@@ -1342,11 +1365,21 @@
                                         if (!date) return <div key={`empty-${index}`} className="bg-slate-50/50 border-r border-b border-slate-200 min-h-[100px] p-2"></div>;
                                         
                                         const dateStr = getLocalDateString(date);
-                                        const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
+                                        const dayEvents = filteredOrders.filter(o => {
+                                            if (o.date === dateStr) return true;
+                                            if (isSpanningStatus(o.status)) {
+                                                const orderDate = new Date(o.date); orderDate.setHours(0,0,0,0);
+                                                const currentCellDate = new Date(date); currentCellDate.setHours(0,0,0,0);
+                                                const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+                                                if (currentCellDate > orderDate && currentCellDate <= todayDate) return true;
+                                            }
+                                            return false;
+                                        }).sort((a, b) => {
                                             const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                                             const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                                             return timeA.localeCompare(timeB);
                                         });
+
                                         const isToday = dateStr === getLocalDateString(new Date());
 
                                         return (
@@ -1355,7 +1388,7 @@
                                                     {isToday ? <span className="bg-red-500 text-white rounded-full w-6 h-6 inline-flex items-center justify-center">{date.getDate()}</span> : date.getDate()}
                                                 </p>
                                                 <div className="space-y-1 max-h-[90px] overflow-y-auto pr-1">
-                                                    {dayEvents.map(renderEventCard)}
+                                                    {dayEvents.map(ev => renderEventCard(ev, dateStr))}
                                                 </div>
                                             </div>
                                         );
@@ -1376,11 +1409,21 @@
                                 <div className="min-w-[800px] grid grid-cols-7 border-t border-l border-slate-200 bg-slate-100 rounded-xl overflow-hidden">
                                     {weekDaysArr.map((date, index) => {
                                         const dateStr = getLocalDateString(date);
-                                        const dayEvents = filteredOrders.filter(o => o.date === dateStr).sort((a, b) => {
+                                        const dayEvents = filteredOrders.filter(o => {
+                                            if (o.date === dateStr) return true;
+                                            if (isSpanningStatus(o.status)) {
+                                                const orderDate = new Date(o.date); orderDate.setHours(0,0,0,0);
+                                                const currentCellDate = new Date(date); currentCellDate.setHours(0,0,0,0);
+                                                const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+                                                if (currentCellDate > orderDate && currentCellDate <= todayDate) return true;
+                                            }
+                                            return false;
+                                        }).sort((a, b) => {
                                             const timeA = a.time_estimate ? String(a.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                                             const timeB = b.time_estimate ? String(b.time_estimate).replace(/[^0-9:]/g, '') : '24:00';
                                             return timeA.localeCompare(timeB);
                                         });
+
                                         const isToday = dateStr === getLocalDateString(new Date());
                                         
                                         return (
@@ -1391,7 +1434,7 @@
                                                     <p className="text-[10px] font-bold">{monthNames[date.getMonth()]}</p>
                                                 </div>
                                                 <div className="space-y-1">
-                                                    {dayEvents.length > 0 ? dayEvents.map(renderEventCard) : <div className="text-center text-xs text-slate-400 font-medium py-4">Kosong</div>}
+                                                    {dayEvents.length > 0 ? dayEvents.map(ev => renderEventCard(ev, dateStr)) : <div className="text-center text-xs text-slate-400 font-medium py-4">Kosong</div>}
                                                 </div>
                                             </div>
                                         );
@@ -1479,6 +1522,7 @@
                                     <select value={jadwalFilterStatus} onChange={e => setJadwalFilterStatus(e.target.value)} className="w-full sm:w-40 bg-white border border-slate-200 p-2 rounded-lg text-sm font-bold text-slate-600 outline-none focus:border-red-400">
                                         <option value="">Semua Status</option>
                                         <option value="Proses">Proses</option>
+                                        <option value="Penawaran">Penawaran (Quotation)</option>
                                         <option value="Pending/Tunggu Sparepart">Pending</option>
                                         <option value="Pengerjaan Lanjutan">Pengerjaan Lanjutan</option>
                                         <option value="Jadwal Ulang">Jadwal Ulang</option>
@@ -1523,7 +1567,10 @@
                                                 
                                                 const techObj = technicians.find(t => t.name === o.technician_name);
                                                 const techPhone = techObj ? getCleanPhone(techObj.phone) : '';
-                                                
+                                                const magicLink = techObj ? `${window.location.origin}${window.location.pathname}?tech=${techObj.access_code}` : '';
+                                                const mapsLinkText = o.maps_link ? `%0A📍 *Shareloc Maps:* ${o.maps_link}` : '';
+                                                const waTechMsg = `Halo *${o.technician_name}*, ada jadwal pengerjaan baru.%0A%0A*👤 Klien:* ${o.customer}%0A*📞 No. HP:* ${o.phone}%0A*📅 Tanggal:* ${dateStr}%0A*⏰ Estimasi:* ${o.time_estimate || '-'}%0A*🛠️ Unit:* ${o.unit}%0A*⚠️ Kendala:* ${o.issue}%0A%0A*🏠 Alamat Teks:* ${o.address}${mapsLinkText}%0A%0A*📄 Link Lampiran Invoice / Penawaran:*%0A${generateInvoiceLink(o.id)}%0A%0ACek progress lengkapnya di portal teknisi kamu ya:%0A${magicLink}`;
+
                                                 return (
                                                 <tr key={o.id} className="hover:bg-slate-50/80 transition-colors bg-white">
                                                     <td className="p-4 align-top">
@@ -1550,9 +1597,9 @@
                                                         <p className="text-xs text-red-600 font-medium mt-1 truncate max-w-[250px]">{o.issue}</p>
                                                     </td>
                                                     <td className="p-4 align-top">
-                                                        <div className="mb-2">
+                                                        <div className="mb-2 flex items-center gap-2">
                                                             {techPhone && !isPublicSchedule ? (
-                                                                <button onClick={() => window.open(`https://wa.me/${techPhone}?text=${getWaTechMsg(o)}`, '_blank')} className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2 py-1 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
+                                                                <button onClick={() => window.open(`https://wa.me/${techPhone}?text=${waTechMsg}`, '_blank')} className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2 py-1 rounded-md inline-flex items-center gap-1 shadow-sm hover:bg-emerald-100 transition-colors" title="Kirim Info ke WA Teknisi">
                                                                     <i className="fa-brands fa-whatsapp text-emerald-500"></i> {o.technician_name}
                                                                 </button>
                                                             ) : (
@@ -1563,6 +1610,7 @@
                                                         </div>
                                                         <span className={`text-[10px] font-bold px-2 py-1.5 rounded uppercase tracking-wider border shadow-sm inline-block ${
                                                             o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                                            o.status.includes('Penawaran') ? 'bg-purple-50 text-purple-700 border-purple-200' :
                                                             o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
                                                             o.status.includes('Lunas') ? 'bg-green-50 text-green-700 border-green-200' : 
                                                             o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
@@ -1905,6 +1953,7 @@
                         <div key={o.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 relative overflow-hidden">
                             <div className={`absolute top-0 left-0 w-1.5 h-full ${
                                 o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-500' : 
+                                o.status.includes('Penawaran') ? 'bg-purple-500' :
                                 o.status.includes('Komplain') ? 'bg-orange-500' :
                                 o.status.includes('Selesai') ? 'bg-emerald-500' : 
                                 'bg-red-500'
@@ -1914,6 +1963,7 @@
                                     <span className="bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-widest flex items-center gap-1"><i className="fa-regular fa-calendar"></i> {new Date(o.date).toLocaleDateString('id-ID', {weekday:'short', day:'numeric', month:'short'})}</span>
                                     <span className={`text-[9px] font-black px-2 py-1 rounded-md uppercase tracking-widest border shadow-sm ${
                                         o.status === 'Proses' || o.status === 'Pengerjaan Lanjutan' ? 'bg-blue-50 text-blue-700 border-blue-200' : 
+                                        o.status.includes('Penawaran') ? 'bg-purple-50 text-purple-700 border-purple-200' :
                                         o.status.includes('Komplain') ? 'bg-orange-50 text-orange-700 border-orange-200' :
                                         o.status.includes('Selesai') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 
                                         'bg-red-50 text-red-700 border-red-200'
@@ -2109,6 +2159,7 @@
                                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1.5"><i className="fa-solid fa-bars-progress"></i> Status Progres</label>
                                             <select name="status" defaultValue={selectedOrder.status} className="w-full font-bold text-slate-800 border-2 border-slate-200 p-3.5 rounded-xl outline-none focus:border-red-500 bg-slate-50 shadow-inner cursor-pointer text-sm sm:text-base">
                                                 <option value="Proses">Sedang Dikerjakan (Proses)</option>
+                                                <option value="Penawaran">Penawaran (Quotation)</option>
                                                 <option value="Pending/Tunggu Sparepart">Pending / Tunggu Sparepart</option>
                                                 <option value="Pengerjaan Lanjutan">Jadwal Pengerjaan Lanjutan</option>
                                                 <option value="Jadwal Ulang">Klien Minta Jadwal Ulang</option>
